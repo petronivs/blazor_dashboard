@@ -99,6 +99,8 @@ Then open http://localhost:5036.
 
 ## Testing
 
+The project is developed test-first: each behavior change starts with a test that is run and seen to fail, then the code is written to make it pass.
+
 Tests use xUnit and [bUnit](https://bunit.dev) and never touch the network: the Frankfurter API is replaced by an in-memory fake behind a stub `HttpMessageHandler`.
 
 ```bash
