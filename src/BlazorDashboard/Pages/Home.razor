@@ -1,0 +1,232 @@
+@page "/"
+@using BlazorDashboard.Services
+@implements IDisposable
+@inject FrankfurterClient Api
+
+<PageTitle>FX Dashboard</PageTitle>
+
+<header class="page-header">
+    <h1>FX Dashboard</h1>
+    <p class="muted">Daily reference rates from the <a href="https://frankfurter.dev" target="_blank" rel="noopener">Frankfurter API</a>.</p>
+</header>
+
+@if (currencies is null)
+{
+    <p class="muted">@(loadError ?? "Loading currencies…")</p>
+}
+else
+{
+    <section class="controls" aria-label="Inputs">
+        <label class="field">
+            <span>Base currency</span>
+            <select @bind="baseCode" @bind:after="OnBaseChangedAsync">
+                @foreach (var c in currencies)
+                {
+                    <option value="@c.IsoCode">@c.IsoCode · @c.Name</option>
+                }
+            </select>
+        </label>
+
+        <label class="field">
+            <span>Amount</span>
+            <input type="number" min="0" step="any" @bind="amount" />
+        </label>
+
+        <label class="field">
+            <span>From</span>
+            <input type="date" @bind="from" @bind:after="LoadRatesAsync" max="@to.ToString("yyyy-MM-dd")" />
+        </label>
+
+        <label class="field">
+            <span>To</span>
+            <input type="date" @bind="to" @bind:after="LoadRatesAsync" min="@from.ToString("yyyy-MM-dd")" max="@Today.ToString("yyyy-MM-dd")" />
+        </label>
+
+        <div class="field field-wide">
+            <span>Compare against</span>
+            <div class="chips">
+                @foreach (var q in quotes)
+                {
+                    <span class="chip">
+                        @q
+                        <button type="button" aria-label="Remove @q" @onclick="() => RemoveQuoteAsync(q)">×</button>
+                    </span>
+                }
+                @* @key forces a fresh <select> after each add so it resets to the placeholder. *@
+                <select @key="quotes.Count" aria-label="Add currency" @onchange="AddQuoteAsync">
+                    <option value="">+ Add currency</option>
+                    @foreach (var c in currencies.Where(c => c.IsoCode != baseCode && !quotes.Contains(c.IsoCode)))
+                    {
+                        <option value="@c.IsoCode">@c.IsoCode · @c.Name</option>
+                    }
+                </select>
+            </div>
+        </div>
+    </section>
+
+    @if (rateError is not null)
+    {
+        <p class="error" role="alert">@rateError</p>
+    }
+    else if (quotes.Count == 0)
+    {
+        <p class="muted">Add a currency to compare against @baseCode.</p>
+    }
+
+    <section class="cards" aria-busy="@loading" aria-label="Rates">
+        @foreach (var s in summaries)
+        {
+            <article class="card">
+                <header class="card-header">
+                    <span class="code">@s.Quote</span>
+                    <span class="muted">@NameOf(s.Quote)</span>
+                </header>
+                <div class="rate">@FormatNumber(s.Last.Value)</div>
+                <div class="muted small">@s.Quote per 1 @baseCode · @s.Last.Date.ToString("MMM d, yyyy")</div>
+                <div class="change">
+                    @(s.Change >= 0 ? "▲" : "▼") @s.Change.ToString("+0.00%;-0.00%")
+                    <span class="muted">since @s.First.Date.ToString("MMM d")</span>
+                </div>
+                <div class="converted">
+                    @FormatNumber(amount) @baseCode = <strong>@FormatNumber(amount * s.Last.Value) @s.Quote</strong>
+                </div>
+            </article>
+        }
+    </section>
+
+    @if (missing.Count > 0)
+    {
+        <p class="muted small">No rates published for @string.Join(", ", missing) in this date range.</p>
+    }
+}
+
+@code {
+    private static DateOnly Today => DateOnly.FromDateTime(DateTime.Today);
+
+    private IReadOnlyList<Currency>? currencies;
+    private string? loadError;
+
+    private string baseCode = "USD";
+    private decimal amount = 1000m;
+    private DateOnly from = Today.AddDays(-30);
+    private DateOnly to = Today;
+    private readonly List<string> quotes = ["EUR", "GBP", "JPY"];
+
+    private IReadOnlyList<Summary> summaries = [];
+    private IReadOnlyList<string> missing = [];
+    private bool loading;
+    private string? rateError;
+    private CancellationTokenSource? cts;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            currencies = await Api.GetCurrenciesAsync();
+        }
+        catch (Exception ex) when (ex is HttpRequestException or System.Text.Json.JsonException)
+        {
+            loadError = $"Couldn't load currencies: {ex.Message}";
+            return;
+        }
+
+        await LoadRatesAsync();
+    }
+
+    private async Task OnBaseChangedAsync()
+    {
+        quotes.Remove(baseCode);
+        await LoadRatesAsync();
+    }
+
+    private async Task AddQuoteAsync(ChangeEventArgs e)
+    {
+        if (e.Value is string code && code.Length > 0 && !quotes.Contains(code))
+        {
+            quotes.Add(code);
+            await LoadRatesAsync();
+        }
+    }
+
+    private async Task RemoveQuoteAsync(string code)
+    {
+        quotes.Remove(code);
+        await LoadRatesAsync();
+    }
+
+    private async Task LoadRatesAsync()
+    {
+        cts?.Cancel();
+        cts = new CancellationTokenSource();
+        var token = cts.Token;
+
+        rateError = null;
+        if (quotes.Count == 0)
+        {
+            summaries = [];
+            missing = [];
+            return;
+        }
+        if (from > to)
+        {
+            rateError = "The From date must be on or before the To date.";
+            summaries = [];
+            missing = [];
+            return;
+        }
+
+        loading = true;
+        try
+        {
+            var rows = await Api.GetRatesAsync(baseCode, quotes, from, to, token);
+            summaries = Summarize(rows);
+            missing = quotes.Except(summaries.Select(s => s.Quote)).ToList();
+        }
+        catch (OperationCanceledException) when (token.IsCancellationRequested)
+        {
+            // Superseded by a newer request.
+        }
+        catch (Exception ex) when (ex is HttpRequestException or System.Text.Json.JsonException)
+        {
+            rateError = $"Couldn't load rates: {ex.Message}";
+            summaries = [];
+            missing = [];
+        }
+        finally
+        {
+            if (!token.IsCancellationRequested)
+            {
+                loading = false;
+            }
+        }
+    }
+
+    private IReadOnlyList<Summary> Summarize(IEnumerable<Rate> rows) =>
+        rows.GroupBy(r => r.Quote)
+            .Select(g =>
+            {
+                var ordered = g.OrderBy(r => r.Date).ToList();
+                return new Summary(g.Key, ordered[0], ordered[^1]);
+            })
+            .OrderBy(s => quotes.IndexOf(s.Quote))
+            .ToList();
+
+    private string NameOf(string code) =>
+        currencies?.FirstOrDefault(c => c.IsoCode == code)?.Name ?? code;
+
+    // Rates span many magnitudes (JPY ~150, gold ~0.0003), so pick precision by size.
+    private static string FormatNumber(decimal value) => Math.Abs(value) switch
+    {
+        >= 100 => value.ToString("N2"),
+        >= 1 => value.ToString("N4"),
+        0 => "0",
+        _ => value.ToString("G4"),
+    };
+
+    public void Dispose() => cts?.Cancel();
+
+    private sealed record Summary(string Quote, Rate First, Rate Last)
+    {
+        public decimal Change => First.Value == 0 ? 0 : Last.Value / First.Value - 1;
+    }
+}

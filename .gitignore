@@ -31,6 +31,9 @@ appsettings.*.local.json
 *.env
 .env*
 
+# Local Claude Code tooling (CLAUDE.md at the repo root is tracked)
+.claude/
+
 # OS
 .DS_Store
 Thumbs.db

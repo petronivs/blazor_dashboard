@@ -2,7 +2,7 @@
 
 A pilot project: a **Blazor WebAssembly** dashboard that runs entirely in the browser, takes a few simple inputs, and visualizes data from an open financial API.
 
-> **Status:** Planning / scaffolding. The repository is set up; the Blazor project has not been created yet.
+> **Status:** Working first version. The dashboard loads live rates with inputs, rate cards and a converter. The time-series chart is next.
 
 ## Goals
 
@@ -36,38 +36,64 @@ v2 returns a flat array, one row per date/quote:
 
 Rates are only published on business days, so time series have gaps (weekends/holidays).
 
-## Planned dashboard
+## Dashboard
 
 **Inputs**
-- Base currency
-- Target currencies (multi-select)
-- Date range
-- Amount (for the converter)
+- Base currency (any of the ~170 Frankfurter currencies)
+- Currencies to compare against, added and removed as chips (default EUR, GBP, JPY)
+- Date range (default: last 30 days)
+- Amount for the converter (default 1,000)
 
 **Outputs**
-- Latest-rate cards per target currency, with change over the selected range
-- Line chart of rates over time
-- Currency converter using the latest rates
+- One card per compared currency showing:
+  - the latest rate and its date
+  - the change since the start of the range
+  - the amount converted at the latest rate
+- *(Planned)* Line chart of rates over time
+
+Any input change refetches rates with a single `/v2/rates` time-series call; the newest request cancels any still in flight. Currencies with no rates in the selected range are listed under the cards.
 
 ## Tech stack
 
-- .NET 10 SDK, Blazor WebAssembly (standalone)
+- .NET 10 SDK, Blazor WebAssembly (standalone, empty template, no CSS framework)
 - `HttpClient` with a typed Frankfurter client
+- Plain CSS with light/dark themes via `prefers-color-scheme`
 - Charting library: TBD
+
+## Project structure
+
+```
+BlazorDashboard.slnx
+src/BlazorDashboard/
+├── Program.cs                     # DI setup: registers FrankfurterClient
+├── Services/
+│   ├── FrankfurterClient.cs       # Typed client for /v2/currencies and /v2/rates
+│   └── FrankfurterModels.cs       # Currency and Rate records (JSON mapping)
+├── Pages/Home.razor               # The dashboard: inputs, rate cards, converter
+├── Layout/MainLayout.razor
+└── wwwroot/
+    ├── index.html
+    └── css/app.css                # All styling (theme tokens, layout, cards)
+```
 
 ## Development
 
 Prerequisites: .NET 10 SDK (developed in WSL / Ubuntu).
 
-Build and run instructions will be added once the project is scaffolded.
+```bash
+dotnet build BlazorDashboard.slnx
+dotnet run --project src/BlazorDashboard --launch-profile http
+```
+
+Then open http://localhost:5036.
 
 ## Roadmap
 
 - [x] Choose data source (Frankfurter v2)
 - [x] Initialize repository
-- [ ] Scaffold Blazor WASM project
-- [ ] Typed Frankfurter API client
-- [ ] Dashboard page: inputs, rate cards, converter
+- [x] Scaffold Blazor WASM project
+- [x] Typed Frankfurter API client
+- [x] Dashboard page: inputs, rate cards, converter
 - [ ] Time-series chart
 - [ ] Deploy to GitHub Pages
 - [ ] (Stretch) Add a second data source, e.g. World Bank indicators or Finnhub stocks
