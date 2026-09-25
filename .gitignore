@@ -1,0 +1,36 @@
+# Build output
+bin/
+obj/
+publish/
+artifacts/
+
+# IDE / editor
+.vs/
+.vscode/*
+!.vscode/settings.json
+!.vscode/launch.json
+!.vscode/tasks.json
+!.vscode/extensions.json
+.idea/
+*.user
+*.suo
+*.userprefs
+*.swp
+
+# .NET tooling
+*.nupkg
+*.snupkg
+.dotnet/
+TestResults/
+coverage/
+*.coverage
+*.trx
+
+# Local config / secrets
+appsettings.*.local.json
+*.env
+.env*
+
+# OS
+.DS_Store
+Thumbs.db
