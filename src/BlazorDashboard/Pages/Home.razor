@@ -2,6 +2,7 @@
 @using BlazorDashboard.Services
 @implements IDisposable
 @inject FrankfurterClient Api
+@inject TimeProvider Clock
 
 <PageTitle>FX Dashboard</PageTitle>
 
@@ -73,7 +74,8 @@ else
         <p class="muted">Add a currency to compare against @baseCode.</p>
     }
 
-    <section class="cards" aria-busy="@loading" aria-label="Rates">
+    @* aria-busy needs a literal "true"/"false"; a bare bool would render as a presence-only attribute. *@
+    <section class="cards" aria-busy="@(loading ? "true" : "false")" aria-label="Rates">
         @foreach (var s in summaries)
         {
             <article class="card">
@@ -81,14 +83,14 @@ else
                     <span class="code">@s.Quote</span>
                     <span class="muted">@NameOf(s.Quote)</span>
                 </header>
-                <div class="rate">@FormatNumber(s.Last.Value)</div>
+                <div class="rate">@NumberFormat.Adaptive(s.Last.Value)</div>
                 <div class="muted small">@s.Quote per 1 @baseCode · @s.Last.Date.ToString("MMM d, yyyy")</div>
                 <div class="change">
                     @(s.Change >= 0 ? "▲" : "▼") @s.Change.ToString("+0.00%;-0.00%")
                     <span class="muted">since @s.First.Date.ToString("MMM d")</span>
                 </div>
                 <div class="converted">
-                    @FormatNumber(amount) @baseCode = <strong>@FormatNumber(amount * s.Last.Value) @s.Quote</strong>
+                    @NumberFormat.Adaptive(amount) @baseCode = <strong>@NumberFormat.Adaptive(amount * s.Last.Value) @s.Quote</strong>
                 </div>
             </article>
         }
@@ -101,18 +103,18 @@ else
 }
 
 @code {
-    private static DateOnly Today => DateOnly.FromDateTime(DateTime.Today);
+    private DateOnly Today => DateOnly.FromDateTime(Clock.GetLocalNow().DateTime);
 
     private IReadOnlyList<Currency>? currencies;
     private string? loadError;
 
     private string baseCode = "USD";
     private decimal amount = 1000m;
-    private DateOnly from = Today.AddDays(-30);
-    private DateOnly to = Today;
+    private DateOnly from;
+    private DateOnly to;
     private readonly List<string> quotes = ["EUR", "GBP", "JPY"];
 
-    private IReadOnlyList<Summary> summaries = [];
+    private IReadOnlyList<RateSummary> summaries = [];
     private IReadOnlyList<string> missing = [];
     private bool loading;
     private string? rateError;
@@ -120,6 +122,9 @@ else
 
     protected override async Task OnInitializedAsync()
     {
+        to = Today;
+        from = to.AddDays(-30);
+
         try
         {
             currencies = await Api.GetCurrenciesAsync();
@@ -179,7 +184,11 @@ else
         try
         {
             var rows = await Api.GetRatesAsync(baseCode, quotes, from, to, token);
-            summaries = Summarize(rows);
+            if (token.IsCancellationRequested)
+            {
+                return; // Superseded by a newer request; don't overwrite its results.
+            }
+            summaries = RateSummary.FromRates(rows, quotes);
             missing = quotes.Except(summaries.Select(s => s.Quote)).ToList();
         }
         catch (OperationCanceledException) when (token.IsCancellationRequested)
@@ -188,6 +197,10 @@ else
         }
         catch (Exception ex) when (ex is HttpRequestException or System.Text.Json.JsonException)
         {
+            if (token.IsCancellationRequested)
+            {
+                return; // A stale request failed; the newer one owns the UI.
+            }
             rateError = $"Couldn't load rates: {ex.Message}";
             summaries = [];
             missing = [];
@@ -201,32 +214,8 @@ else
         }
     }
 
-    private IReadOnlyList<Summary> Summarize(IEnumerable<Rate> rows) =>
-        rows.GroupBy(r => r.Quote)
-            .Select(g =>
-            {
-                var ordered = g.OrderBy(r => r.Date).ToList();
-                return new Summary(g.Key, ordered[0], ordered[^1]);
-            })
-            .OrderBy(s => quotes.IndexOf(s.Quote))
-            .ToList();
-
     private string NameOf(string code) =>
         currencies?.FirstOrDefault(c => c.IsoCode == code)?.Name ?? code;
 
-    // Rates span many magnitudes (JPY ~150, gold ~0.0003), so pick precision by size.
-    private static string FormatNumber(decimal value) => Math.Abs(value) switch
-    {
-        >= 100 => value.ToString("N2"),
-        >= 1 => value.ToString("N4"),
-        0 => "0",
-        _ => value.ToString("G4"),
-    };
-
     public void Dispose() => cts?.Cancel();
-
-    private sealed record Summary(string Quote, Rate First, Rate Last)
-    {
-        public decimal Change => First.Value == 0 ? 0 : Last.Value / First.Value - 1;
-    }
 }

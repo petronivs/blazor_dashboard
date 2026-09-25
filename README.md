@@ -64,17 +64,27 @@ Any input change refetches rates with a single `/v2/rates` time-series call; the
 
 ```
 BlazorDashboard.slnx
+dotnet-tools.json                  # Local tools (ReportGenerator for coverage)
 src/BlazorDashboard/
-├── Program.cs                     # DI setup: registers FrankfurterClient
+├── Program.cs                     # DI setup: FrankfurterClient, TimeProvider
 ├── Services/
 │   ├── FrankfurterClient.cs       # Typed client for /v2/currencies and /v2/rates
-│   └── FrankfurterModels.cs       # Currency and Rate records (JSON mapping)
+│   ├── FrankfurterModels.cs       # Currency and Rate records (JSON mapping)
+│   ├── RateSummary.cs             # First/last rate and % change per quote
+│   └── NumberFormat.cs            # Magnitude-aware number formatting
 ├── Pages/Home.razor               # The dashboard: inputs, rate cards, converter
 ├── Layout/MainLayout.razor
 └── wwwroot/
     ├── index.html
     └── css/app.css                # All styling (theme tokens, layout, cards)
+tests/BlazorDashboard.Tests/
+├── Services/                      # Unit tests: client, summaries, formatting
+├── Pages/HomeTests.cs             # bUnit component tests for the dashboard
+├── AppTests.cs                    # Routing: dashboard and not-found page
+└── TestSupport/                   # Fake Frankfurter API, stub HTTP handler, fixed clock
 ```
+
+The page gets "today" from an injected `TimeProvider` so tests can pin the date.
 
 ## Development
 
@@ -87,6 +97,27 @@ dotnet run --project src/BlazorDashboard --launch-profile http
 
 Then open http://localhost:5036.
 
+## Testing
+
+Tests use xUnit and [bUnit](https://bunit.dev) and never touch the network: the Frankfurter API is replaced by an in-memory fake behind a stub `HttpMessageHandler`.
+
+```bash
+dotnet test BlazorDashboard.slnx
+```
+
+Coverage (coverlet + ReportGenerator):
+
+```bash
+dotnet tool restore
+rm -rf TestResults
+dotnet test BlazorDashboard.slnx --collect:"XPlat Code Coverage" --results-directory ./TestResults
+dotnet reportgenerator -reports:"TestResults/*/coverage.cobertura.xml" -targetdir:TestResults/coverage-report -reporttypes:"Html;TextSummary"
+```
+
+Open `TestResults/coverage-report/index.html` for the full report.
+
+**Current coverage:** 66 tests; 95.2% line and 96.8% branch coverage. Everything except `Program.cs` (startup wiring, which tests don't run) is at or near 100%. The one uncovered branch in `Home.razor` is a defensive guard that `HttpClient`'s own cancellation handling makes unreachable in tests.
+
 ## Roadmap
 
 - [x] Choose data source (Frankfurter v2)
@@ -94,6 +125,7 @@ Then open http://localhost:5036.
 - [x] Scaffold Blazor WASM project
 - [x] Typed Frankfurter API client
 - [x] Dashboard page: inputs, rate cards, converter
+- [x] Unit and component tests with coverage reporting
 - [ ] Time-series chart
 - [ ] Deploy to GitHub Pages
 - [ ] (Stretch) Add a second data source, e.g. World Bank indicators or Finnhub stocks
