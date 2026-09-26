@@ -76,6 +76,14 @@ a {
     margin: 0 0 24px;
 }
 
+.cookie-notice {
+    margin: 0 0 24px;
+    padding: 12px 16px;
+    background: var(--accent-soft);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+}
+
 .muted {
     color: var(--muted);
 }

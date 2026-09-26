@@ -48,6 +48,7 @@ Rates are only published on business days, so time series have gaps (weekends/ho
 - Date range (default: last 30 days)
 - Amount for the converter (default 1,000)
 - The current selections are remembered in a cookie and restored on the next visit
+- The page shows a cookie notice because the remembered selections use browser cookies
 
 **Outputs**
 - One card per compared currency showing:

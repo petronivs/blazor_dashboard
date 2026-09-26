@@ -12,6 +12,10 @@
     <p class="muted">Daily reference rates from the <a href="https://frankfurter.dev" target="_blank" rel="noopener">Frankfurter API</a>.</p>
 </header>
 
+<aside class="cookie-notice" aria-label="Cookie notice">
+    This dashboard uses a cookie to remember your selections on this device.
+</aside>
+
 @if (currencies is null)
 {
     <p class="muted">@(loadError ?? "Loading currencies…")</p>

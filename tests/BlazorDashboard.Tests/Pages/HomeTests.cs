@@ -69,6 +69,16 @@ public class HomeTests : BunitContext
     }
 
     [Fact]
+    public void CookieNotice_IsShownOnDashboard()
+    {
+        var cut = RenderLoaded();
+
+        var notice = cut.Find(".cookie-notice");
+        Assert.Contains("This dashboard uses a cookie", notice.TextContent);
+        Assert.Contains("remember your selections", notice.TextContent);
+    }
+
+    [Fact]
     public void SavedState_InitialLoadUsesRememberedSelections()
     {
         JSInterop.Mode = JSRuntimeMode.Loose;
