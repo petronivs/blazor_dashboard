@@ -3,6 +3,7 @@
 @implements IDisposable
 @inject FrankfurterClient Api
 @inject TimeProvider Clock
+@inject IDashboardStateStore StateStore
 
 <PageTitle>FX Dashboard</PageTitle>
 
@@ -10,6 +11,10 @@
     <h1>FX Dashboard</h1>
     <p class="muted">Daily reference rates from the <a href="https://frankfurter.dev" target="_blank" rel="noopener">Frankfurter API</a>.</p>
 </header>
+
+<aside class="cookie-notice" aria-label="Cookie notice">
+    This dashboard uses a cookie to remember your selections on this device.
+</aside>
 
 @if (currencies is null)
 {
@@ -30,17 +35,17 @@ else
 
         <label class="field">
             <span>Amount</span>
-            <input type="number" min="0" step="any" @bind="amount" />
+            <input type="number" min="0" step="any" @bind="amount" @bind:after="PersistStateAsync" />
         </label>
 
         <label class="field">
             <span>From</span>
-            <input type="date" @bind="from" @bind:after="LoadRatesAsync" max="@to.ToString("yyyy-MM-dd")" />
+            <input type="date" @bind="from" @bind:after="OnFromChangedAsync" max="@to.ToString("yyyy-MM-dd")" />
         </label>
 
         <label class="field">
             <span>To</span>
-            <input type="date" @bind="to" @bind:after="LoadRatesAsync" min="@from.ToString("yyyy-MM-dd")" max="@Today.ToString("yyyy-MM-dd")" />
+            <input type="date" @bind="to" @bind:after="OnToChangedAsync" min="@from.ToString("yyyy-MM-dd")" max="@Today.ToString("yyyy-MM-dd")" />
         </label>
 
         <div class="field field-wide">
@@ -115,6 +120,10 @@ else
 
 @code {
     private DateOnly Today => DateOnly.FromDateTime(Clock.GetLocalNow().DateTime);
+    private static readonly string[] DefaultQuotes = ["EUR", "GBP", "JPY"];
+    private const int DefaultRollingRangeDays = 30;
+    private DateOnly DefaultTo => Today;
+    private DateOnly DefaultFrom => DefaultTo.AddDays(-DefaultRollingRangeDays);
 
     private IReadOnlyList<Currency>? currencies;
     private string? loadError;
@@ -126,7 +135,7 @@ else
     // The chart palette has 8 validated colors; more series would need a 9th, generated hue.
     private const int MaxQuotes = 8;
 
-    private readonly List<string> quotes = ["EUR", "GBP", "JPY"];
+    private readonly List<string> quotes = [.. DefaultQuotes];
     // Palette slot (1–8) per quote. A currency keeps its slot while selected, so removing
     // one never repaints the others; a new currency takes the lowest free slot.
     private readonly Dictionary<string, int> colorSlots = new() { ["EUR"] = 1, ["GBP"] = 2, ["JPY"] = 3 };
@@ -143,11 +152,12 @@ else
     private bool loading;
     private string? rateError;
     private CancellationTokenSource? cts;
+    private int? rollingRangeDays;
+    private bool toRollsWithToday;
 
     protected override async Task OnInitializedAsync()
     {
-        to = Today;
-        from = to.AddDays(-30);
+        SetDefaultDateRange();
 
         try
         {
@@ -159,7 +169,8 @@ else
             return;
         }
 
-        await LoadRatesAsync();
+        ApplySavedState(await StateStore.LoadAsync());
+        await LoadRatesAsync(persistState: false);
     }
 
     private async Task OnBaseChangedAsync()
@@ -174,7 +185,7 @@ else
         if (e.Value is string code && code.Length > 0 && !quotes.Contains(code) && !AtQuoteLimit)
         {
             quotes.Add(code);
-            colorSlots[code] = Enumerable.Range(1, MaxQuotes).First(slot => !colorSlots.ContainsValue(slot));
+            colorSlots[code] = NextFreeSlot();
             await LoadRatesAsync();
         }
     }
@@ -193,13 +204,128 @@ else
         rows = [];
     }
 
-    private async Task LoadRatesAsync()
+    private async Task PersistStateAsync() =>
+        await StateStore.SaveAsync(new DashboardState(
+            baseCode,
+            amount,
+            rollingRangeDays is not null ? null : from,
+            rollingRangeDays is not null || toRollsWithToday ? null : to,
+            quotes.ToList(),
+            colorSlots.ToDictionary(entry => entry.Key, entry => entry.Value),
+            rollingRangeDays,
+            toRollsWithToday ? true : null));
+
+    private void ApplySavedState(DashboardState? state)
+    {
+        if (state is null || currencies is null)
+        {
+            return;
+        }
+
+        var validCodes = currencies.Select(c => c.IsoCode).ToHashSet(StringComparer.Ordinal);
+
+        if (state.BaseCode is not null && validCodes.Contains(state.BaseCode))
+        {
+            baseCode = state.BaseCode;
+        }
+
+        if (state.Amount is { } savedAmount && savedAmount >= 0)
+        {
+            amount = savedAmount;
+        }
+
+        if (state.RollingRangeDays is { } savedRollingRangeDays &&
+            savedRollingRangeDays == DefaultRollingRangeDays)
+        {
+            rollingRangeDays = savedRollingRangeDays;
+            toRollsWithToday = false;
+            to = Today;
+            from = to.AddDays(-savedRollingRangeDays);
+        }
+        else if (state.From is { } savedFrom &&
+                 savedFrom != default &&
+                 savedFrom <= Today &&
+                 state.ToIsToday == true)
+        {
+            rollingRangeDays = null;
+            toRollsWithToday = true;
+            from = savedFrom;
+            to = Today;
+        }
+        else if (state.From is { } absoluteFrom &&
+                 state.To is { } absoluteTo &&
+                 absoluteFrom != default &&
+                 absoluteTo != default &&
+                 absoluteFrom <= absoluteTo &&
+                 absoluteTo <= Today)
+        {
+            rollingRangeDays = null;
+            toRollsWithToday = false;
+            from = absoluteFrom;
+            to = absoluteTo;
+        }
+
+        if (state.Quotes is not null)
+        {
+            quotes.Clear();
+            quotes.AddRange(state.Quotes
+                .Where(code => validCodes.Contains(code) && code != baseCode)
+                .Distinct()
+                .Take(MaxQuotes));
+
+            colorSlots.Clear();
+            foreach (var quote in quotes)
+            {
+                if (state.ColorSlots is not null &&
+                    state.ColorSlots.TryGetValue(quote, out var slot) &&
+                    slot >= 1 &&
+                    slot <= MaxQuotes &&
+                    !colorSlots.ContainsValue(slot))
+                {
+                    colorSlots[quote] = slot;
+                    continue;
+                }
+
+                colorSlots[quote] = NextFreeSlot();
+            }
+        }
+    }
+
+    private void SetDefaultDateRange()
+    {
+        rollingRangeDays = DefaultRollingRangeDays;
+        toRollsWithToday = false;
+        to = DefaultTo;
+        from = DefaultFrom;
+    }
+
+    private void UpdateDatePersistenceMode()
+    {
+        if (from == DefaultFrom && to == DefaultTo)
+        {
+            rollingRangeDays = DefaultRollingRangeDays;
+            toRollsWithToday = false;
+            return;
+        }
+
+        rollingRangeDays = null;
+        toRollsWithToday = to == Today;
+    }
+
+    private int NextFreeSlot() =>
+        Enumerable.Range(1, MaxQuotes).First(slot => !colorSlots.ContainsValue(slot));
+
+    private async Task LoadRatesAsync(bool persistState = true)
     {
         cts?.Cancel();
         cts = new CancellationTokenSource();
         var token = cts.Token;
 
         rateError = null;
+        if (persistState)
+        {
+            await PersistStateAsync();
+        }
         if (quotes.Count == 0)
         {
             ClearResults();
@@ -246,6 +372,26 @@ else
                 loading = false;
             }
         }
+    }
+
+    private Task ReloadRatesAsync() => LoadRatesAsync();
+
+    private Task OnFromChangedAsync()
+    {
+        if (rollingRangeDays is not null || toRollsWithToday)
+        {
+            rollingRangeDays = null;
+            toRollsWithToday = true;
+            to = Today;
+        }
+
+        return LoadRatesAsync();
+    }
+
+    private Task OnToChangedAsync()
+    {
+        UpdateDatePersistenceMode();
+        return LoadRatesAsync();
     }
 
     private string NameOf(string code) =>
