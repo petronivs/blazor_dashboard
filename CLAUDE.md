@@ -17,6 +17,8 @@ Notes:
 
 ## Other conventions
 
+- CI (`.github/workflows/ci.yml`) builds and tests every push, in Release; pushes to `main` deploy to GitHub Pages under `/blazor_dashboard/`. Before pushing, make sure a Release build and test run pass locally (`dotnet build -c Release` then `dotnet test --no-build -c Release`). After pushing, check the run with `gh run list` / `gh run watch`.
+
 - Keep `README.md` up to date: whenever a change affects the project's status, setup, structure, data sources, features, or roadmap, update the README in the same change.
 - The repo lives in WSL (`/home/adam/projects/blazor_dashboard`); run git and dotnet via WSL.
 - Git author for this repo is set in the local repo config (GitHub no-reply address); don't change global git config.

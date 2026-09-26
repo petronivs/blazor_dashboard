@@ -1,0 +1,102 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# A newer push supersedes an older run on the same branch, except on main,
+# where a deployment in progress is allowed to finish.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+env:
+  DOTNET_NOLOGO: true
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
+
+jobs:
+  test:
+    name: Build and test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Restore
+        run: |
+          dotnet tool restore
+          dotnet restore BlazorDashboard.slnx
+
+      - name: Build
+        run: dotnet build BlazorDashboard.slnx --no-restore -c Release
+
+      - name: Test with coverage
+        run: >
+          dotnet test BlazorDashboard.slnx --no-build -c Release
+          --collect:"XPlat Code Coverage" --results-directory ./TestResults
+
+      - name: Coverage summary
+        if: ${{ !cancelled() }}
+        run: |
+          dotnet reportgenerator -reports:"TestResults/*/coverage.cobertura.xml" \
+            -targetdir:TestResults/coverage-report -reporttypes:"MarkdownSummaryGithub;Html"
+          cat TestResults/coverage-report/SummaryGithub.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload test results and coverage report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: test-results
+          path: TestResults/
+
+  deploy:
+    name: Deploy to GitHub Pages
+    needs: test
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Publish
+        run: dotnet publish src/BlazorDashboard -c Release -o publish
+
+      # The site is served from https://<owner>.github.io/<repo>/, so the app's base path must be /<repo>/.
+      - name: Prepare site for GitHub Pages
+        working-directory: publish/wwwroot
+        run: |
+          base="/${GITHUB_REPOSITORY#*/}/"
+          sed -i "s|<base href=\"/\" />|<base href=\"$base\" />|" index.html
+          grep -q "<base href=\"$base\" />" index.html || { echo "::error::base href was not rewritten"; exit 1; }
+          # Pre-compressed copies still hold the old base href.
+          rm -f index.html.br index.html.gz
+          # Pages serves 404.html for unknown paths; let the Blazor router handle them.
+          cp index.html 404.html
+
+      - uses: actions/configure-pages@v6
+
+      - uses: actions/upload-pages-artifact@v5
+        with:
+          path: publish/wwwroot
+
+      - name: Deploy
+        id: deployment
+        uses: actions/deploy-pages@v5

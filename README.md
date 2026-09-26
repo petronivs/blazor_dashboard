@@ -1,8 +1,12 @@
 # Blazor FX Dashboard
 
+[![CI](https://github.com/petronivs/blazor_dashboard/actions/workflows/ci.yml/badge.svg)](https://github.com/petronivs/blazor_dashboard/actions/workflows/ci.yml)
+
 A pilot project: a **Blazor WebAssembly** dashboard that runs entirely in the browser, takes a few simple inputs, and visualizes data from an open financial API.
 
-> **Status:** Working dashboard with inputs, rate cards, a converter and an interactive time-series chart. Deploying to GitHub Pages is next.
+**Live site:** https://petronivs.github.io/blazor_dashboard/
+
+> **Status:** Working dashboard with inputs, rate cards, a converter and an interactive time-series chart. Every push is built and tested by GitHub Actions; pushes to `main` deploy to GitHub Pages.
 
 ## Goals
 
@@ -77,6 +81,7 @@ A hand-written SVG component (`RateChart`), with no charting library and no Java
 ```
 BlazorDashboard.slnx
 dotnet-tools.json                  # Local tools (ReportGenerator for coverage)
+.github/workflows/ci.yml           # Build, test, coverage; deploy main to GitHub Pages
 src/BlazorDashboard/
 ├── Program.cs                     # DI setup: FrankfurterClient, TimeProvider
 ├── Services/
@@ -138,6 +143,20 @@ Open `TestResults/coverage-report/index.html` for the full report.
 
 **Current coverage:** 129 tests; 98% line and 98.8% branch coverage. Everything except `Program.cs` (startup wiring, which tests don't run) is at or near 100%. The one uncovered branch in `Home.razor` is a defensive guard that `HttpClient`'s own cancellation handling makes unreachable in tests.
 
+## CI and deployment
+
+[`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs on every push to any branch, on pull requests, and on demand:
+
+1. **Build and test** (all runs): Release build, the full test suite with coverage, a coverage table in the run's summary page, and the test results plus HTML coverage report uploaded as the `test-results` artifact.
+2. **Deploy to GitHub Pages** (pushes to `main` only, after tests pass): `dotnet publish` in Release, then:
+   - rewrite `<base href="/">` to `/blazor_dashboard/`, since Pages serves the site from that sub-path (the step fails if the rewrite doesn't match);
+   - delete the pre-compressed `index.html.br`/`.gz`, which would still hold the old base path;
+   - copy `index.html` to `404.html` so unknown URLs fall through to the Blazor router.
+
+A newer push cancels an older in-progress run on the same branch, except on `main`, where a deployment is allowed to finish.
+
+GitHub Pages is configured with **Source: GitHub Actions** (repository Settings → Pages).
+
 ## Roadmap
 
 - [x] Choose data source (Frankfurter v2)
@@ -147,5 +166,6 @@ Open `TestResults/coverage-report/index.html` for the full report.
 - [x] Dashboard page: inputs, rate cards, converter
 - [x] Unit and component tests with coverage reporting
 - [x] Time-series chart
-- [ ] Deploy to GitHub Pages
+- [x] CI on every push (GitHub Actions)
+- [x] Deploy to GitHub Pages
 - [ ] (Stretch) Add a second data source, e.g. World Bank indicators or Finnhub stocks
