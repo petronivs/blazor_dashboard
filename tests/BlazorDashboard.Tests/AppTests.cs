@@ -25,7 +25,9 @@ public class AppTests : BunitContext
         {
             Assert.Equal("World Finance Dashboard", cut.Find("main.container h1").TextContent);
 
-            Assert.Equal("Foreign exchange", cut.Find(".dashboard-tabs .dashboard-tab-active").TextContent.Trim());
+            var tab = cut.Find(".dashboard-tabs .dashboard-tab-active");
+            Assert.Equal("Foreign exchange", tab.TextContent.Trim());
+            Assert.Equal("#panel-foreign-exchange", tab.GetAttribute("href"));
             Assert.Equal("FX Dashboard", cut.Find("main.container h2").TextContent);
         });
     }
