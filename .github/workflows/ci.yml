@@ -63,14 +63,11 @@ jobs:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:
-      contents: read
-      pages: write
-      id-token: write
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
+      contents: write
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
 
       - uses: actions/setup-dotnet@v6
         with:
@@ -88,15 +85,32 @@ jobs:
           grep -q "<base href=\"$base\" />" index.html || { echo "::error::base href was not rewritten"; exit 1; }
           # Pre-compressed copies still hold the old base href.
           rm -f index.html.br index.html.gz
+          # Branch-based Pages deployments need Jekyll disabled so /_framework is published.
+          touch .nojekyll
           # Pages serves 404.html for unknown paths; let the Blazor router handle them.
           cp index.html 404.html
 
-      - uses: actions/configure-pages@v6
-
-      - uses: actions/upload-pages-artifact@v5
-        with:
-          path: publish/wwwroot
-
-      - name: Deploy
-        id: deployment
-        uses: actions/deploy-pages@v5
+      - name: Push site to gh-pages
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch origin gh-pages || true
+          rm -rf /tmp/gh-pages
+          if git show-ref --verify --quiet refs/remotes/origin/gh-pages; then
+            git worktree add /tmp/gh-pages origin/gh-pages
+          else
+            git worktree add --detach /tmp/gh-pages
+            (
+              cd /tmp/gh-pages
+              git checkout --orphan gh-pages
+            )
+          fi
+          find /tmp/gh-pages -mindepth 1 -maxdepth 1 ! -name .git -exec rm -rf {} +
+          cp -R publish/wwwroot/. /tmp/gh-pages/
+          (
+            cd /tmp/gh-pages
+            git add --all
+            git commit -m "Deploy GitHub Pages for ${GITHUB_SHA}" || exit 0
+            git push --force origin HEAD:gh-pages
+          )
+          git worktree remove /tmp/gh-pages --force

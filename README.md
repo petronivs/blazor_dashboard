@@ -156,11 +156,13 @@ Open `TestResults/coverage-report/index.html` for the full report.
 2. **Deploy to GitHub Pages** (pushes to `main` only, after tests pass): `dotnet publish` in Release, then:
    - rewrite `<base href="/">` to `/blazor_dashboard/`, since Pages serves the site from that sub-path (the step fails if the rewrite doesn't match);
    - delete the pre-compressed `index.html.br`/`.gz`, which would still hold the old base path;
+   - create `.nojekyll`, so the published `_framework` assets are served from the Pages branch;
    - copy `index.html` to `404.html` so unknown URLs fall through to the Blazor router.
+   - force-push the built site to the `gh-pages` branch.
 
 A newer push cancels an older in-progress run on the same branch, except on `main`, where a deployment is allowed to finish.
 
-GitHub Pages is configured with **Source: GitHub Actions** (repository Settings → Pages).
+GitHub Pages is configured to serve from the **`gh-pages` branch** (repository Settings → Pages).
 
 ## Roadmap
 
