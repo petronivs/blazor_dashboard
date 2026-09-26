@@ -96,6 +96,48 @@ public class HomeTests : BunitContext
     }
 
     [Fact]
+    public void SavedState_ClampsRememberedDatesToValidRange()
+    {
+        JSInterop.Mode = JSRuntimeMode.Loose;
+        JSInterop.Setup<string?>("dashboardCookies.get").SetResult(
+            """
+            {"baseCode":"USD","amount":1000,"from":"2026-09-30","to":"2026-10-02","quotes":["EUR","JPY"]}
+            """);
+
+        var cut = RenderLoaded();
+
+        var query = Assert.Single(api.RateQueries);
+        Assert.Equal(new DateOnly(2026, 9, 25), query.From);
+        Assert.Equal(new DateOnly(2026, 9, 25), query.To);
+
+        var dates = cut.FindAll("input[type=date]");
+        Assert.Equal("2026-09-25", dates[0].GetAttribute("value"));
+        Assert.Equal("2026-09-25", dates[1].GetAttribute("value"));
+        Assert.Empty(cut.FindAll("[role=alert]"));
+    }
+
+    [Fact]
+    public void SavedState_RestoresRememberedColorSlots()
+    {
+        JSInterop.Mode = JSRuntimeMode.Loose;
+        JSInterop.Setup<string?>("dashboardCookies.get").SetResult(
+            """
+            {
+              "baseCode":"CHF",
+              "amount":250.5,
+              "from":"2026-08-01",
+              "to":"2026-08-31",
+              "quotes":["JPY","EUR","GBP"],
+              "colorSlots":{"JPY":3,"EUR":1,"GBP":2}
+            }
+            """);
+
+        var cut = RenderLoaded();
+
+        Assert.Equal(["JPY:slot-3", "EUR:slot-1", "GBP:slot-2"], LegendSlots(cut));
+    }
+
+    [Fact]
     public void InitialLoad_PopulatesInputs()
     {
         var cut = RenderLoaded();
