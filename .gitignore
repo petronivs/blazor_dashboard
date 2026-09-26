@@ -31,7 +31,7 @@ appsettings.*.local.json
 *.env
 .env*
 
-# Local Claude Code tooling (CLAUDE.md at the repo root is tracked)
+# Local agent tooling (AGENTS.md at the repo root is tracked)
 .claude/
 
 # OS
