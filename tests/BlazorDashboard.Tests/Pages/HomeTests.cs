@@ -13,12 +13,13 @@ public class HomeTests : BunitContext
     private static readonly DateTimeOffset Now = new(2026, 9, 25, 12, 0, 0, TimeSpan.Zero);
 
     private readonly FakeFrankfurterApi api = new();
+    private readonly FixedTimeProvider clock = new(Now);
     private readonly FakeDashboardStateStore stateStore = new();
 
     public HomeTests()
     {
         CultureInfo.CurrentCulture = CultureInfo.CurrentUICulture = new CultureInfo("en-US");
-        Services.AddSingleton<TimeProvider>(new FixedTimeProvider(Now));
+        Services.AddSingleton<TimeProvider>(clock);
         Services.AddSingleton(_ => api.CreateClient());
         Services.AddSingleton(stateStore);
         Services.AddSingleton<IDashboardStateStore>(stateStore);
@@ -214,6 +215,48 @@ public class HomeTests : BunitContext
         var cut = RenderLoaded();
 
         Assert.Equal(["JPY:slot-3", "EUR:slot-1", "GBP:slot-2"], LegendSlots(cut));
+    }
+
+    [Fact]
+    public async Task SavedState_RestoresCustomFromWithRollingTodayTo()
+    {
+        var cut = RenderLoaded();
+        cut.FindAll("input[type=date]")[0].Change("2026-06-01");
+        cut.WaitForAssertion(() => Assert.Equal(new DateOnly(2026, 6, 1), api.RateQueries[^1].From));
+
+        stateStore.LoadedState = stateStore.SavedStates.Last();
+        clock.Advance(TimeSpan.FromDays(30));
+        await DisposeComponentsAsync();
+
+        var restored = RenderLoaded();
+        var query = api.RateQueries[^1];
+        Assert.Equal(new DateOnly(2026, 6, 1), query.From);
+        Assert.Equal(new DateOnly(2026, 10, 25), query.To);
+
+        var dates = restored.FindAll("input[type=date]");
+        Assert.Equal("2026-06-01", dates[0].GetAttribute("value"));
+        Assert.Equal("2026-10-25", dates[1].GetAttribute("value"));
+    }
+
+    [Fact]
+    public async Task SavedState_KeepsDefaultRangeRollingAcrossMidnight()
+    {
+        var cut = RenderLoaded();
+
+        clock.Advance(TimeSpan.FromDays(1));
+        cut.Find("input[type=number]").Change("250");
+
+        stateStore.LoadedState = stateStore.SavedStates.Last();
+        await DisposeComponentsAsync();
+
+        var restored = RenderLoaded();
+        var query = api.RateQueries[^1];
+        Assert.Equal(new DateOnly(2026, 8, 27), query.From);
+        Assert.Equal(new DateOnly(2026, 9, 26), query.To);
+
+        var dates = restored.FindAll("input[type=date]");
+        Assert.Equal("2026-08-27", dates[0].GetAttribute("value"));
+        Assert.Equal("2026-09-26", dates[1].GetAttribute("value"));
     }
 
     [Fact]

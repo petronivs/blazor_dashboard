@@ -39,5 +39,17 @@ public class HomeCookiePersistenceTests : BunitContext
         using var document = JsonDocument.Parse(saved!);
         Assert.False(document.RootElement.TryGetProperty("from", out _));
         Assert.False(document.RootElement.TryGetProperty("to", out _));
+        Assert.Equal(30, document.RootElement.GetProperty("rollingRangeDays").GetInt32());
+    }
+
+    [Fact]
+    public void MissingAmountInCookie_KeepsDefaultAmount()
+    {
+        JSInterop.Setup<string?>("dashboardCookies.get").SetResult("""{"quotes":["EUR"]}""");
+
+        var cut = Render<Home>();
+        cut.WaitForAssertion(() => Assert.Equal("false", cut.Find("section.cards").GetAttribute("aria-busy")));
+
+        Assert.Equal("1000", cut.Find("input[type=number]").GetAttribute("value"));
     }
 }

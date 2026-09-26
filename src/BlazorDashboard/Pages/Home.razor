@@ -40,12 +40,12 @@ else
 
         <label class="field">
             <span>From</span>
-            <input type="date" @bind="from" @bind:after="ReloadRatesAsync" max="@to.ToString("yyyy-MM-dd")" />
+            <input type="date" @bind="from" @bind:after="OnFromChangedAsync" max="@to.ToString("yyyy-MM-dd")" />
         </label>
 
         <label class="field">
             <span>To</span>
-            <input type="date" @bind="to" @bind:after="ReloadRatesAsync" min="@from.ToString("yyyy-MM-dd")" max="@Today.ToString("yyyy-MM-dd")" />
+            <input type="date" @bind="to" @bind:after="OnToChangedAsync" min="@from.ToString("yyyy-MM-dd")" max="@Today.ToString("yyyy-MM-dd")" />
         </label>
 
         <div class="field field-wide">
@@ -151,6 +151,8 @@ else
     private bool loading;
     private string? rateError;
     private CancellationTokenSource? cts;
+    private int? rollingRangeDays;
+    private bool toRollsWithToday;
 
     protected override async Task OnInitializedAsync()
     {
@@ -205,10 +207,12 @@ else
         await StateStore.SaveAsync(new DashboardState(
             baseCode,
             amount,
-            HasDefaultDateRange ? null : from,
-            HasDefaultDateRange ? null : to,
+            rollingRangeDays is not null ? null : from,
+            rollingRangeDays is not null || toRollsWithToday ? null : to,
             quotes.ToList(),
-            colorSlots.ToDictionary(entry => entry.Key, entry => entry.Value)));
+            colorSlots.ToDictionary(entry => entry.Key, entry => entry.Value),
+            rollingRangeDays,
+            toRollsWithToday ? true : null));
 
     private void ApplySavedState(DashboardState? state)
     {
@@ -224,20 +228,40 @@ else
             baseCode = state.BaseCode;
         }
 
-        if (state.Amount >= 0)
+        if (state.Amount is { } savedAmount && savedAmount >= 0)
         {
-            amount = state.Amount;
+            amount = savedAmount;
         }
 
-        if (state.From is { } savedFrom &&
-            state.To is { } savedTo &&
-            savedFrom != default &&
-            savedTo != default &&
-            savedFrom <= savedTo &&
-            savedTo <= Today)
+        if (state.RollingRangeDays is { } savedRollingRangeDays &&
+            savedRollingRangeDays >= 0)
         {
+            rollingRangeDays = savedRollingRangeDays;
+            toRollsWithToday = false;
+            to = Today;
+            from = to.AddDays(-savedRollingRangeDays);
+        }
+        else if (state.From is { } savedFrom &&
+                 savedFrom != default &&
+                 savedFrom <= Today &&
+                 state.ToIsToday == true)
+        {
+            rollingRangeDays = null;
+            toRollsWithToday = true;
             from = savedFrom;
-            to = savedTo;
+            to = Today;
+        }
+        else if (state.From is { } absoluteFrom &&
+                 state.To is { } absoluteTo &&
+                 absoluteFrom != default &&
+                 absoluteTo != default &&
+                 absoluteFrom <= absoluteTo &&
+                 absoluteTo <= Today)
+        {
+            rollingRangeDays = null;
+            toRollsWithToday = false;
+            from = absoluteFrom;
+            to = absoluteTo;
         }
 
         if (state.Quotes is not null)
@@ -266,12 +290,25 @@ else
         }
     }
 
-    private bool HasDefaultDateRange => from == DefaultFrom && to == DefaultTo;
-
     private void SetDefaultDateRange()
     {
+        rollingRangeDays = 30;
+        toRollsWithToday = false;
         to = DefaultTo;
         from = DefaultFrom;
+    }
+
+    private void UpdateDatePersistenceMode()
+    {
+        if (from == DefaultFrom && to == DefaultTo)
+        {
+            rollingRangeDays = 30;
+            toRollsWithToday = false;
+            return;
+        }
+
+        rollingRangeDays = null;
+        toRollsWithToday = to == Today;
     }
 
     private int NextFreeSlot() =>
@@ -337,6 +374,18 @@ else
     }
 
     private Task ReloadRatesAsync() => LoadRatesAsync();
+
+    private Task OnFromChangedAsync()
+    {
+        UpdateDatePersistenceMode();
+        return LoadRatesAsync();
+    }
+
+    private Task OnToChangedAsync()
+    {
+        UpdateDatePersistenceMode();
+        return LoadRatesAsync();
+    }
 
     private string NameOf(string code) =>
         currencies?.FirstOrDefault(c => c.IsoCode == code)?.Name ?? code;
