@@ -17,11 +17,18 @@ public class AppTests : BunitContext
     }
 
     [Fact]
-    public void RootRoute_RendersDashboardInsideMainLayout()
+    public void RootRoute_RendersWorldFinanceDashboardShellInsideMainLayout()
     {
         var cut = Render<App>();
 
-        cut.WaitForAssertion(() => Assert.Equal("FX Dashboard", cut.Find("main.container h1").TextContent));
+        cut.WaitForAssertion(() =>
+        {
+            Assert.Equal("World Finance Dashboard", cut.Find("main.container h1").TextContent);
+
+            var tab = cut.Find("[role=tablist] [role=tab]");
+            Assert.Equal("Foreign exchange", tab.TextContent.Trim());
+            Assert.Equal("true", tab.GetAttribute("aria-selected"));
+        });
     }
 
     [Fact]

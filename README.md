@@ -1,12 +1,12 @@
-# Blazor FX Dashboard
+# Blazor World Finance Dashboard
 
 [![CI](https://github.com/petronivs/blazor_dashboard/actions/workflows/ci.yml/badge.svg)](https://github.com/petronivs/blazor_dashboard/actions/workflows/ci.yml)
 
-A pilot project: a **Blazor WebAssembly** dashboard that runs entirely in the browser, takes a few simple inputs, and visualizes data from an open financial API.
+A pilot project: a **Blazor WebAssembly** dashboard that runs entirely in the browser, takes a few simple inputs, and visualizes data from open financial APIs.
 
 **Live site:** https://petronivs.github.io/blazor_dashboard/
 
-> **Status:** Working dashboard with inputs, rate cards, a converter and an interactive time-series chart. Every push is built and tested by GitHub Actions; pushes to `main` deploy to GitHub Pages.
+> **Status:** Working World Finance dashboard shell with a foreign-exchange tab containing inputs, rate cards, a converter and an interactive time-series chart. Every push is built and tested by GitHub Actions; pushes to `main` deploy to GitHub Pages.
 
 ## Goals
 
@@ -41,6 +41,10 @@ v2 returns a flat array, one row per date/quote:
 Rates are only published on business days, so time series have gaps (weekends/holidays).
 
 ## Dashboard
+
+The app now presents a **World Finance Dashboard** shell so additional data sources can be added over time. The current Frankfurter-powered foreign-exchange view is the first tab and keeps all existing behavior.
+
+### Foreign exchange tab
 
 **Inputs**
 - Base currency (any of the ~170 Frankfurter currencies)
@@ -100,7 +104,9 @@ src/BlazorDashboard/
 │   ├── RateChart.razor            # SVG line chart: legend, labels, hover, keyboard, table
 │   ├── RateChartLayout.cs         # Pure geometry: points, ticks, hover columns, label placement
 │   └── NiceScale.cs               # Round-number axis ranges and tick steps
-├── Pages/Home.razor               # The dashboard: inputs, rate cards, converter, chart
+├── Components/
+│   └── FxDashboard.razor          # Frankfurter-backed FX dashboard tab content
+├── Pages/Home.razor               # World Finance shell and dashboard tabs
 ├── Layout/MainLayout.razor
 └── wwwroot/
     ├── index.html
