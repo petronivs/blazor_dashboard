@@ -1,18 +1,18 @@
 using System.Globalization;
 using System.Text.Json;
-using BlazorDashboard.Pages;
+using BlazorDashboard.Components;
 using BlazorDashboard.Services;
 using BlazorDashboard.Tests.TestSupport;
 using Bunit;
 using Microsoft.Extensions.DependencyInjection;
 
-namespace BlazorDashboard.Tests.Pages;
+namespace BlazorDashboard.Tests.Components;
 
-public class HomeCookiePersistenceTests : BunitContext
+public class FxDashboardCookiePersistenceTests : BunitContext
 {
     private readonly FakeFrankfurterApi api = new();
 
-    public HomeCookiePersistenceTests()
+    public FxDashboardCookiePersistenceTests()
     {
         CultureInfo.CurrentCulture = CultureInfo.CurrentUICulture = new CultureInfo("en-US");
         JSInterop.Mode = JSRuntimeMode.Loose;
@@ -26,7 +26,7 @@ public class HomeCookiePersistenceTests : BunitContext
     [Fact]
     public void ChangingOnlyAmount_DoesNotPersistAbsoluteDefaultDates()
     {
-        var cut = Render<Home>();
+        var cut = Render<FxDashboard>();
         cut.WaitForAssertion(() => Assert.Equal("false", cut.Find("section.cards").GetAttribute("aria-busy")));
 
         cut.Find("input[type=number]").Change("250");
@@ -47,7 +47,7 @@ public class HomeCookiePersistenceTests : BunitContext
     {
         JSInterop.Setup<string?>("dashboardCookies.get").SetResult("""{"quotes":["EUR"]}""");
 
-        var cut = Render<Home>();
+        var cut = Render<FxDashboard>();
         cut.WaitForAssertion(() => Assert.Equal("false", cut.Find("section.cards").GetAttribute("aria-busy")));
 
         Assert.Equal("1000", cut.Find("input[type=number]").GetAttribute("value"));

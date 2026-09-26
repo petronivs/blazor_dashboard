@@ -17,6 +17,17 @@ public class AppTests : BunitContext
     }
 
     [Fact]
+    public void StaticHostPage_UsesWorldFinanceTitle()
+    {
+        var indexHtmlPath = Path.GetFullPath(Path.Combine(
+            AppContext.BaseDirectory,
+            "..", "..", "..", "..", "..",
+            "src", "BlazorDashboard", "wwwroot", "index.html"));
+
+        Assert.Contains("<title>World Finance Dashboard</title>", File.ReadAllText(indexHtmlPath));
+    }
+
+    [Fact]
     public void RootRoute_RendersWorldFinanceDashboardShellInsideMainLayout()
     {
         var cut = Render<App>();

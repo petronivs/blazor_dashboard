@@ -112,9 +112,12 @@ src/BlazorDashboard/
     ├── index.html
     └── css/app.css                # All styling (theme tokens, chart palette, layout)
 tests/BlazorDashboard.Tests/
+├── Components/                    # bUnit tests for FxDashboard behavior and cookie persistence
+│   ├── FxDashboardTests.cs
+│   └── FxDashboardCookiePersistenceTests.cs
 ├── Services/                      # Unit tests: client, summaries, formatting
 ├── Charts/                        # Unit tests for scale and layout; bUnit tests for RateChart
-├── Pages/HomeTests.cs             # bUnit component tests for the dashboard
+├── Pages/HomeTests.cs             # bUnit tests for the World Finance shell
 ├── AppTests.cs                    # Routing: dashboard and not-found page
 └── TestSupport/                   # Fake Frankfurter API, stub HTTP handler, fixed clock
 ```
