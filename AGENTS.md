@@ -1,4 +1,4 @@
-# Project notes for Claude
+# Project notes for agents
 
 ## Test-driven development
 
