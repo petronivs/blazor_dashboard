@@ -8,6 +8,7 @@ builder.RootComponents.Add<App>("#app");
 builder.RootComponents.Add<HeadOutlet>("head::after");
 
 builder.Services.AddSingleton(TimeProvider.System);
+builder.Services.AddScoped<IDashboardStateStore, CookieDashboardStateStore>();
 builder.Services.AddScoped(_ => new FrankfurterClient(new HttpClient { BaseAddress = new Uri(FrankfurterClient.BaseUrl) }));
 
 await builder.Build().RunAsync();

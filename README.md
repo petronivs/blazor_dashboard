@@ -47,6 +47,7 @@ Rates are only published on business days, so time series have gaps (weekends/ho
 - Currencies to compare against, added and removed as chips (default EUR, GBP, JPY; at most 8)
 - Date range (default: last 30 days)
 - Amount for the converter (default 1,000)
+- The current selections are remembered in a cookie and restored on the next visit
 
 **Outputs**
 - One card per compared currency showing:
@@ -74,7 +75,7 @@ A hand-written SVG component (`RateChart`), with no charting library and no Java
 - .NET 10 SDK, Blazor WebAssembly (standalone, empty template, no CSS framework)
 - `HttpClient` with a typed Frankfurter client
 - Plain CSS with light/dark themes via `prefers-color-scheme`
-- Charts: hand-written SVG Razor components (no charting library, no JS interop)
+- Charts: hand-written SVG Razor components, plus a tiny JS helper to read/write the state cookie
 
 ## Project structure
 
@@ -85,7 +86,10 @@ dotnet-tools.json                  # Local tools (ReportGenerator for coverage)
 src/BlazorDashboard/
 ├── Program.cs                     # DI setup: FrankfurterClient, TimeProvider
 ├── Services/
+│   ├── CookieDashboardStateStore.cs # Reads/writes the remembered dashboard selections cookie
+│   ├── DashboardState.cs          # Serializable snapshot of the remembered selections
 │   ├── FrankfurterClient.cs       # Typed client for /v2/currencies and /v2/rates
+│   ├── IDashboardStateStore.cs    # Abstraction for restoring/saving dashboard selections
 │   ├── FrankfurterModels.cs       # Currency and Rate records (JSON mapping)
 │   ├── RateSummary.cs             # First/last rate and % change per quote
 │   ├── NumberFormat.cs            # Magnitude-aware number formatting

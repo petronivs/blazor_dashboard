@@ -1,5 +1,6 @@
 using BlazorDashboard.Tests.TestSupport;
 using Bunit;
+using BlazorDashboard.Services;
 using Microsoft.AspNetCore.Components;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -12,6 +13,7 @@ public class AppTests : BunitContext
         JSInterop.Mode = JSRuntimeMode.Loose; // FocusOnNavigate calls into JS
         Services.AddSingleton<TimeProvider>(new FixedTimeProvider(new DateTimeOffset(2026, 9, 25, 12, 0, 0, TimeSpan.Zero)));
         Services.AddSingleton(_ => new FakeFrankfurterApi().CreateClient());
+        Services.AddScoped<IDashboardStateStore, CookieDashboardStateStore>();
     }
 
     [Fact]

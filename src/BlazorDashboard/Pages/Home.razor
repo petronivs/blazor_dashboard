@@ -3,6 +3,7 @@
 @implements IDisposable
 @inject FrankfurterClient Api
 @inject TimeProvider Clock
+@inject IDashboardStateStore StateStore
 
 <PageTitle>FX Dashboard</PageTitle>
 
@@ -30,17 +31,17 @@ else
 
         <label class="field">
             <span>Amount</span>
-            <input type="number" min="0" step="any" @bind="amount" />
+            <input type="number" min="0" step="any" @bind="amount" @bind:after="PersistStateAsync" />
         </label>
 
         <label class="field">
             <span>From</span>
-            <input type="date" @bind="from" @bind:after="LoadRatesAsync" max="@to.ToString("yyyy-MM-dd")" />
+            <input type="date" @bind="from" @bind:after="ReloadRatesAsync" max="@to.ToString("yyyy-MM-dd")" />
         </label>
 
         <label class="field">
             <span>To</span>
-            <input type="date" @bind="to" @bind:after="LoadRatesAsync" min="@from.ToString("yyyy-MM-dd")" max="@Today.ToString("yyyy-MM-dd")" />
+            <input type="date" @bind="to" @bind:after="ReloadRatesAsync" min="@from.ToString("yyyy-MM-dd")" max="@Today.ToString("yyyy-MM-dd")" />
         </label>
 
         <div class="field field-wide">
@@ -115,6 +116,7 @@ else
 
 @code {
     private DateOnly Today => DateOnly.FromDateTime(Clock.GetLocalNow().DateTime);
+    private static readonly string[] DefaultQuotes = ["EUR", "GBP", "JPY"];
 
     private IReadOnlyList<Currency>? currencies;
     private string? loadError;
@@ -126,7 +128,7 @@ else
     // The chart palette has 8 validated colors; more series would need a 9th, generated hue.
     private const int MaxQuotes = 8;
 
-    private readonly List<string> quotes = ["EUR", "GBP", "JPY"];
+    private readonly List<string> quotes = [.. DefaultQuotes];
     // Palette slot (1–8) per quote. A currency keeps its slot while selected, so removing
     // one never repaints the others; a new currency takes the lowest free slot.
     private readonly Dictionary<string, int> colorSlots = new() { ["EUR"] = 1, ["GBP"] = 2, ["JPY"] = 3 };
@@ -159,7 +161,8 @@ else
             return;
         }
 
-        await LoadRatesAsync();
+        ApplySavedState(await StateStore.LoadAsync());
+        await LoadRatesAsync(persistState: false);
     }
 
     private async Task OnBaseChangedAsync()
@@ -174,7 +177,7 @@ else
         if (e.Value is string code && code.Length > 0 && !quotes.Contains(code) && !AtQuoteLimit)
         {
             quotes.Add(code);
-            colorSlots[code] = Enumerable.Range(1, MaxQuotes).First(slot => !colorSlots.ContainsValue(slot));
+            colorSlots[code] = NextFreeSlot();
             await LoadRatesAsync();
         }
     }
@@ -193,13 +196,74 @@ else
         rows = [];
     }
 
-    private async Task LoadRatesAsync()
+    private async Task PersistStateAsync() =>
+        await StateStore.SaveAsync(new DashboardState(
+            baseCode,
+            amount,
+            from,
+            to,
+            quotes.ToList(),
+            colorSlots.ToDictionary(entry => entry.Key, entry => entry.Value)));
+
+    private void ApplySavedState(DashboardState? state)
+    {
+        if (state is null || currencies is null)
+        {
+            return;
+        }
+
+        var validCodes = currencies.Select(c => c.IsoCode).ToHashSet(StringComparer.Ordinal);
+
+        if (validCodes.Contains(state.BaseCode))
+        {
+            baseCode = state.BaseCode;
+        }
+
+        if (state.Amount >= 0)
+        {
+            amount = state.Amount;
+        }
+
+        from = state.From;
+        to = state.To;
+
+        quotes.Clear();
+        quotes.AddRange(state.Quotes
+            .Where(code => validCodes.Contains(code) && code != baseCode)
+            .Distinct()
+            .Take(MaxQuotes));
+
+        colorSlots.Clear();
+        foreach (var quote in quotes)
+        {
+            if (state.ColorSlots is not null &&
+                state.ColorSlots.TryGetValue(quote, out var slot) &&
+                slot >= 1 &&
+                slot <= MaxQuotes &&
+                !colorSlots.ContainsValue(slot))
+            {
+                colorSlots[quote] = slot;
+                continue;
+            }
+
+            colorSlots[quote] = NextFreeSlot();
+        }
+    }
+
+    private int NextFreeSlot() =>
+        Enumerable.Range(1, MaxQuotes).First(slot => !colorSlots.ContainsValue(slot));
+
+    private async Task LoadRatesAsync(bool persistState = true)
     {
         cts?.Cancel();
         cts = new CancellationTokenSource();
         var token = cts.Token;
 
         rateError = null;
+        if (persistState)
+        {
+            await PersistStateAsync();
+        }
         if (quotes.Count == 0)
         {
             ClearResults();
@@ -247,6 +311,8 @@ else
             }
         }
     }
+
+    private Task ReloadRatesAsync() => LoadRatesAsync();
 
     private string NameOf(string code) =>
         currencies?.FirstOrDefault(c => c.IsoCode == code)?.Name ?? code;

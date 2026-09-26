@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Net;
+using System.Text.Json;
 using BlazorDashboard.Pages;
 using BlazorDashboard.Services;
 using BlazorDashboard.Tests.TestSupport;
@@ -19,6 +20,7 @@ public class HomeTests : BunitContext
         CultureInfo.CurrentCulture = CultureInfo.CurrentUICulture = new CultureInfo("en-US");
         Services.AddSingleton<TimeProvider>(new FixedTimeProvider(Now));
         Services.AddSingleton(_ => api.CreateClient());
+        Services.AddScoped<IDashboardStateStore, CookieDashboardStateStore>();
     }
 
     private IRenderedComponent<Home> RenderLoaded()
@@ -64,6 +66,33 @@ public class HomeTests : BunitContext
         Assert.Equal(["EUR", "GBP", "JPY"], query.Quotes);
         Assert.Equal(new DateOnly(2026, 8, 26), query.From);
         Assert.Equal(new DateOnly(2026, 9, 25), query.To);
+    }
+
+    [Fact]
+    public void SavedState_InitialLoadUsesRememberedSelections()
+    {
+        JSInterop.Mode = JSRuntimeMode.Loose;
+        JSInterop.Setup<string?>("dashboardCookies.get").SetResult(
+            """
+            {"baseCode":"CHF","amount":250.5,"from":"2026-08-01","to":"2026-08-31","quotes":["JPY","EUR"]}
+            """);
+
+        var cut = RenderLoaded();
+
+        var query = Assert.Single(api.RateQueries);
+        Assert.Equal("CHF", query.Base);
+        Assert.Equal(["JPY", "EUR"], query.Quotes);
+        Assert.Equal(new DateOnly(2026, 8, 1), query.From);
+        Assert.Equal(new DateOnly(2026, 8, 31), query.To);
+
+        var baseSelect = cut.Find("section.controls select");
+        Assert.Equal("CHF", baseSelect.GetAttribute("value"));
+        Assert.Equal("250.5", cut.Find("input[type=number]").GetAttribute("value"));
+
+        var dates = cut.FindAll("input[type=date]");
+        Assert.Equal("2026-08-01", dates[0].GetAttribute("value"));
+        Assert.Equal("2026-08-31", dates[1].GetAttribute("value"));
+        Assert.Equal(["JPY", "EUR"], ChipCodes(cut));
     }
 
     [Fact]
@@ -341,6 +370,31 @@ public class HomeTests : BunitContext
 
         Assert.Contains("250.00 USD = 229.50 EUR", Card(cut, "EUR"));
         Assert.Single(api.RateQueries);
+    }
+
+    [Fact]
+    public void ChangingSelections_SavesStateToCookie()
+    {
+        JSInterop.Mode = JSRuntimeMode.Loose;
+        JSInterop.SetupVoid("dashboardCookies.set");
+
+        var cut = RenderLoaded();
+
+        cut.Find("button[aria-label='Remove GBP']").Click();
+        cut.WaitForAssertion(() => Assert.Equal(["EUR", "JPY"], CardCodes(cut)));
+        cut.Find("input[type=number]").Change("250");
+
+        var saved = JSInterop.Invocations
+            .Where(invocation => invocation.Identifier == "dashboardCookies.set")
+            .Select(invocation => invocation.Arguments[0]?.ToString())
+            .Last();
+
+        using var document = JsonDocument.Parse(saved!);
+        Assert.Equal("USD", document.RootElement.GetProperty("baseCode").GetString());
+        Assert.Equal(250m, document.RootElement.GetProperty("amount").GetDecimal());
+        Assert.Equal("2026-08-26", document.RootElement.GetProperty("from").GetString());
+        Assert.Equal("2026-09-25", document.RootElement.GetProperty("to").GetString());
+        Assert.Equal(["EUR", "JPY"], document.RootElement.GetProperty("quotes").EnumerateArray().Select(e => e.GetString()!).ToArray());
     }
 
     // --- Chart -------------------------------------------------------------------

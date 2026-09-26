@@ -27,6 +27,25 @@
         <a href="." class="reload">Reload</a>
         <span class="dismiss">🗙</span>
     </div>
+    <script>
+        window.dashboardCookies = {
+            get() {
+                const prefix = "blazor_dashboard_state=";
+                const entry = document.cookie
+                    .split("; ")
+                    .find(cookie => cookie.startsWith(prefix));
+                return entry ? decodeURIComponent(entry.substring(prefix.length)) : null;
+            },
+            set(value, path) {
+                document.cookie = [
+                    `blazor_dashboard_state=${encodeURIComponent(value)}`,
+                    `path=${path || "/"}`,
+                    "max-age=31536000",
+                    "samesite=lax"
+                ].join("; ");
+            }
+        };
+    </script>
     <script src="_framework/blazor.webassembly#[.{fingerprint}].js"></script>
 </body>
 
