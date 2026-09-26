@@ -94,6 +94,7 @@ a {
 }
 
 .dashboard-tab {
+    display: inline-block;
     font: inherit;
     color: var(--text);
     background: var(--surface);
@@ -103,7 +104,7 @@ a {
     padding: 10px 14px;
 }
 
-.dashboard-tab[aria-selected="true"] {
+.dashboard-tab-active {
     background: var(--accent-soft);
     font-weight: 600;
 }

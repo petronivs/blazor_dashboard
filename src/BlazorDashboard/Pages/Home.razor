@@ -8,23 +8,13 @@
 </header>
 
 <section class="dashboard-shell" aria-label="World Finance dashboard">
-    <div class="dashboard-tabs" role="tablist" aria-label="World Finance data sources">
-        <button
-            id="tab-foreign-exchange"
-            class="dashboard-tab"
-            type="button"
-            role="tab"
-            aria-selected="true"
-            aria-controls="panel-foreign-exchange">
+    <nav class="dashboard-tabs" aria-label="World Finance data sources">
+        <span class="dashboard-tab dashboard-tab-active">
             Foreign exchange
-        </button>
-    </div>
+        </span>
+    </nav>
 
-    <section
-        id="panel-foreign-exchange"
-        class="dashboard-panel"
-        role="tabpanel"
-        aria-labelledby="tab-foreign-exchange">
+    <section class="dashboard-panel">
         <FxDashboard />
     </section>
 </section>

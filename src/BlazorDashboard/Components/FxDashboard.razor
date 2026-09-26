@@ -371,8 +371,6 @@ else
         }
     }
 
-    private Task ReloadRatesAsync() => LoadRatesAsync();
-
     private Task OnFromChangedAsync()
     {
         if (rollingRangeDays is not null || toRollsWithToday)

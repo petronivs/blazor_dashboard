@@ -25,9 +25,8 @@ public class AppTests : BunitContext
         {
             Assert.Equal("World Finance Dashboard", cut.Find("main.container h1").TextContent);
 
-            var tab = cut.Find("[role=tablist] [role=tab]");
-            Assert.Equal("Foreign exchange", tab.TextContent.Trim());
-            Assert.Equal("true", tab.GetAttribute("aria-selected"));
+            Assert.Equal("Foreign exchange", cut.Find(".dashboard-tabs .dashboard-tab-active").TextContent.Trim());
+            Assert.Equal("FX Dashboard", cut.Find("main.container h2").TextContent);
         });
     }
 
