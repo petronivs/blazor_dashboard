@@ -117,6 +117,27 @@ public class HomeTests : BunitContext
     }
 
     [Fact]
+    public void SavedState_ClampsRememberedToDateUpToRememberedFromDate()
+    {
+        JSInterop.Mode = JSRuntimeMode.Loose;
+        JSInterop.Setup<string?>("dashboardCookies.get").SetResult(
+            """
+            {"baseCode":"USD","amount":1000,"from":"2026-09-20","to":"2026-09-10","quotes":["EUR","JPY"]}
+            """);
+
+        var cut = RenderLoaded();
+
+        var query = Assert.Single(api.RateQueries);
+        Assert.Equal(new DateOnly(2026, 9, 20), query.From);
+        Assert.Equal(new DateOnly(2026, 9, 20), query.To);
+
+        var dates = cut.FindAll("input[type=date]");
+        Assert.Equal("2026-09-20", dates[0].GetAttribute("value"));
+        Assert.Equal("2026-09-20", dates[1].GetAttribute("value"));
+        Assert.Empty(cut.FindAll("[role=alert]"));
+    }
+
+    [Fact]
     public void SavedState_RestoresRememberedColorSlots()
     {
         JSInterop.Mode = JSRuntimeMode.Loose;

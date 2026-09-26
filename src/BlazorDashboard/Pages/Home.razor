@@ -224,8 +224,12 @@ else
             amount = state.Amount;
         }
 
+        from = state.From > Today ? Today : state.From;
         to = state.To > Today ? Today : state.To;
-        from = state.From > to ? to : state.From;
+        if (to < from)
+        {
+            to = from;
+        }
 
         quotes.Clear();
         quotes.AddRange(state.Quotes
