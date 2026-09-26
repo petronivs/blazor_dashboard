@@ -260,6 +260,72 @@ public class HomeTests : BunitContext
     }
 
     [Fact]
+    public void SavedState_UsesDefaultRangeWhenRollingRangeDaysIsHuge()
+    {
+        stateStore.LoadedState = new DashboardState(
+            "USD",
+            1000m,
+            null,
+            null,
+            ["EUR", "JPY"],
+            null,
+            1000000);
+
+        var cut = RenderLoaded();
+
+        var query = Assert.Single(api.RateQueries);
+        Assert.Equal(new DateOnly(2026, 8, 26), query.From);
+        Assert.Equal(new DateOnly(2026, 9, 25), query.To);
+
+        var dates = cut.FindAll("input[type=date]");
+        Assert.Equal("2026-08-26", dates[0].GetAttribute("value"));
+        Assert.Equal("2026-09-25", dates[1].GetAttribute("value"));
+        Assert.Empty(cut.FindAll("[role=alert]"));
+    }
+
+    [Fact]
+    public void SavedState_UsesDefaultRangeWhenRollingRangeDaysIsOutOfRange()
+    {
+        stateStore.LoadedState = new DashboardState(
+            "USD",
+            1000m,
+            null,
+            null,
+            ["EUR", "JPY"],
+            null,
+            100000);
+
+        var cut = RenderLoaded();
+
+        var query = Assert.Single(api.RateQueries);
+        Assert.Equal(new DateOnly(2026, 8, 26), query.From);
+        Assert.Equal(new DateOnly(2026, 9, 25), query.To);
+
+        var dates = cut.FindAll("input[type=date]");
+        Assert.Equal("2026-08-26", dates[0].GetAttribute("value"));
+        Assert.Equal("2026-09-25", dates[1].GetAttribute("value"));
+        Assert.Empty(cut.FindAll("[role=alert]"));
+    }
+
+    [Fact]
+    public void ChangingFromAfterMidnight_KeepsToRollingInSavedState()
+    {
+        var cut = RenderLoaded();
+        cut.FindAll("input[type=date]")[0].Change("2026-06-01");
+        cut.WaitForAssertion(() => Assert.Equal(new DateOnly(2026, 6, 1), api.RateQueries[^1].From));
+
+        clock.Advance(TimeSpan.FromDays(1));
+        cut.FindAll("input[type=date]")[0].Change("2026-05-01");
+        cut.WaitForAssertion(() => Assert.Equal(new DateOnly(2026, 5, 1), api.RateQueries[^1].From));
+
+        var saved = stateStore.SavedStates.Last();
+        Assert.Equal(new DateOnly(2026, 5, 1), saved.From);
+        Assert.Null(saved.To);
+        Assert.Null(saved.RollingRangeDays);
+        Assert.True(saved.ToIsToday);
+    }
+
+    [Fact]
     public void InitialLoad_PopulatesInputs()
     {
         var cut = RenderLoaded();

@@ -121,8 +121,9 @@ else
 @code {
     private DateOnly Today => DateOnly.FromDateTime(Clock.GetLocalNow().DateTime);
     private static readonly string[] DefaultQuotes = ["EUR", "GBP", "JPY"];
+    private const int DefaultRollingRangeDays = 30;
     private DateOnly DefaultTo => Today;
-    private DateOnly DefaultFrom => DefaultTo.AddDays(-30);
+    private DateOnly DefaultFrom => DefaultTo.AddDays(-DefaultRollingRangeDays);
 
     private IReadOnlyList<Currency>? currencies;
     private string? loadError;
@@ -234,7 +235,7 @@ else
         }
 
         if (state.RollingRangeDays is { } savedRollingRangeDays &&
-            savedRollingRangeDays >= 0)
+            savedRollingRangeDays == DefaultRollingRangeDays)
         {
             rollingRangeDays = savedRollingRangeDays;
             toRollsWithToday = false;
@@ -292,7 +293,7 @@ else
 
     private void SetDefaultDateRange()
     {
-        rollingRangeDays = 30;
+        rollingRangeDays = DefaultRollingRangeDays;
         toRollsWithToday = false;
         to = DefaultTo;
         from = DefaultFrom;
@@ -302,7 +303,7 @@ else
     {
         if (from == DefaultFrom && to == DefaultTo)
         {
-            rollingRangeDays = 30;
+            rollingRangeDays = DefaultRollingRangeDays;
             toRollsWithToday = false;
             return;
         }
@@ -377,7 +378,13 @@ else
 
     private Task OnFromChangedAsync()
     {
-        UpdateDatePersistenceMode();
+        if (rollingRangeDays is not null || toRollsWithToday)
+        {
+            rollingRangeDays = null;
+            toRollsWithToday = true;
+            to = Today;
+        }
+
         return LoadRatesAsync();
     }
 
