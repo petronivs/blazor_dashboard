@@ -2,7 +2,7 @@
 
 A pilot project: a **Blazor WebAssembly** dashboard that runs entirely in the browser, takes a few simple inputs, and visualizes data from an open financial API.
 
-> **Status:** Working first version. The dashboard loads live rates with inputs, rate cards and a converter. The time-series chart is next.
+> **Status:** Working dashboard with inputs, rate cards, a converter and an interactive time-series chart. Deploying to GitHub Pages is next.
 
 ## Goals
 
@@ -40,7 +40,7 @@ Rates are only published on business days, so time series have gaps (weekends/ho
 
 **Inputs**
 - Base currency (any of the ~170 Frankfurter currencies)
-- Currencies to compare against, added and removed as chips (default EUR, GBP, JPY)
+- Currencies to compare against, added and removed as chips (default EUR, GBP, JPY; at most 8)
 - Date range (default: last 30 days)
 - Amount for the converter (default 1,000)
 
@@ -49,16 +49,28 @@ Rates are only published on business days, so time series have gaps (weekends/ho
   - the latest rate and its date
   - the change since the start of the range
   - the amount converted at the latest rate
-- *(Planned)* Line chart of rates over time
+- A line chart of **% change since the start of the range**, one line per compared currency (details below)
 
-Any input change refetches rates with a single `/v2/rates` time-series call; the newest request cancels any still in flight. Currencies with no rates in the selected range are listed under the cards.
+Any input change refetches rates with a single `/v2/rates` time-series call; the newest request cancels any still in flight. While it loads, the cards and chart keep their previous content, dimmed. Currencies with no rates in the selected range are listed under the cards.
+
+### The chart
+
+A hand-written SVG component (`RateChart`), with no charting library and no JavaScript.
+
+- **Why % change and not raw rates:** raw rates differ by orders of magnitude (JPY ~150 vs EUR ~0.9), so on one axis most lines would be flat. Indexing every currency to its first day puts them on one comparable axis, with a zero baseline.
+- **Colors** come from an 8-slot categorical palette, validated for color-blind separation in both light and dark themes. A currency keeps its color while it stays selected; removing one never repaints the others, and a new currency takes the lowest free color. That's why at most 8 currencies can be compared.
+- **Identity is never color alone:** a legend (2+ series), a label at the end of each line with its latest change (up to 4 series), and a data table.
+- **Hover** anywhere over the plot for a crosshair and a tooltip listing every currency's change and rate on that date. The chart is keyboard-accessible: focus it and use ←/→, Home/End, Esc.
+- **Data table:** "Show data table" under the chart lists every rate by date.
+- Axis ticks use round numbers (1, 2, 2.5 or 5 × 10ⁿ); the x-axis is scaled by calendar date, so weekends and holidays show as gaps.
+- On narrow screens the chart scrolls sideways inside its frame instead of shrinking its text.
 
 ## Tech stack
 
 - .NET 10 SDK, Blazor WebAssembly (standalone, empty template, no CSS framework)
 - `HttpClient` with a typed Frankfurter client
 - Plain CSS with light/dark themes via `prefers-color-scheme`
-- Charting library: TBD
+- Charts: hand-written SVG Razor components (no charting library, no JS interop)
 
 ## Project structure
 
@@ -71,14 +83,20 @@ src/BlazorDashboard/
 │   ├── FrankfurterClient.cs       # Typed client for /v2/currencies and /v2/rates
 │   ├── FrankfurterModels.cs       # Currency and Rate records (JSON mapping)
 │   ├── RateSummary.cs             # First/last rate and % change per quote
-│   └── NumberFormat.cs            # Magnitude-aware number formatting
-├── Pages/Home.razor               # The dashboard: inputs, rate cards, converter
+│   ├── NumberFormat.cs            # Magnitude-aware number formatting
+│   └── ReadOnlyListExtensions.cs
+├── Charts/
+│   ├── RateChart.razor            # SVG line chart: legend, labels, hover, keyboard, table
+│   ├── RateChartLayout.cs         # Pure geometry: points, ticks, hover columns, label placement
+│   └── NiceScale.cs               # Round-number axis ranges and tick steps
+├── Pages/Home.razor               # The dashboard: inputs, rate cards, converter, chart
 ├── Layout/MainLayout.razor
 └── wwwroot/
     ├── index.html
-    └── css/app.css                # All styling (theme tokens, layout, cards)
+    └── css/app.css                # All styling (theme tokens, chart palette, layout)
 tests/BlazorDashboard.Tests/
 ├── Services/                      # Unit tests: client, summaries, formatting
+├── Charts/                        # Unit tests for scale and layout; bUnit tests for RateChart
 ├── Pages/HomeTests.cs             # bUnit component tests for the dashboard
 ├── AppTests.cs                    # Routing: dashboard and not-found page
 └── TestSupport/                   # Fake Frankfurter API, stub HTTP handler, fixed clock
@@ -118,7 +136,7 @@ dotnet reportgenerator -reports:"TestResults/*/coverage.cobertura.xml" -targetdi
 
 Open `TestResults/coverage-report/index.html` for the full report.
 
-**Current coverage:** 66 tests; 95.2% line and 96.8% branch coverage. Everything except `Program.cs` (startup wiring, which tests don't run) is at or near 100%. The one uncovered branch in `Home.razor` is a defensive guard that `HttpClient`'s own cancellation handling makes unreachable in tests.
+**Current coverage:** 129 tests; 98% line and 98.8% branch coverage. Everything except `Program.cs` (startup wiring, which tests don't run) is at or near 100%. The one uncovered branch in `Home.razor` is a defensive guard that `HttpClient`'s own cancellation handling makes unreachable in tests.
 
 ## Roadmap
 
@@ -128,6 +146,6 @@ Open `TestResults/coverage-report/index.html` for the full report.
 - [x] Typed Frankfurter API client
 - [x] Dashboard page: inputs, rate cards, converter
 - [x] Unit and component tests with coverage reporting
-- [ ] Time-series chart
+- [x] Time-series chart
 - [ ] Deploy to GitHub Pages
 - [ ] (Stretch) Add a second data source, e.g. World Bank indicators or Finnhub stocks

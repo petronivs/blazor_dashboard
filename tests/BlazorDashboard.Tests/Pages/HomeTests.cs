@@ -343,6 +343,140 @@ public class HomeTests : BunitContext
         Assert.Single(api.RateQueries);
     }
 
+    // --- Chart -------------------------------------------------------------------
+
+    private static string[] LineSlots(IRenderedComponent<Home> cut) =>
+        cut.FindAll("polyline.series-line").Select(l => l.ClassList.Single(c => c.StartsWith("slot-"))).ToArray();
+
+    private static string[] LegendSlots(IRenderedComponent<Home> cut) =>
+        cut.FindAll(".chart-legend li").Select(li =>
+            $"{li.TextContent.Trim()}:{li.QuerySelector(".legend-key")!.ClassList.Single(c => c.StartsWith("slot-"))}").ToArray();
+
+    [Fact]
+    public void Chart_ShowsOneLinePerLoadedQuote()
+    {
+        var cut = RenderLoaded();
+
+        Assert.Equal(3, cut.FindAll("section.chart-section polyline.series-line").Count);
+        Assert.Contains("against USD", cut.Find("svg.chart-svg").GetAttribute("aria-label"));
+        Assert.Equal("Change since Aug 26", cut.Find(".chart-title").TextContent.Trim());
+    }
+
+    [Fact]
+    public void Chart_IsHiddenWhenAReloadFails()
+    {
+        api.RatesResponse = (q, _) => Task.FromResult(api.RateQueries.Count == 1
+            ? StubHttpHandler.Json(api.BuildRatesJson(q))
+            : new HttpResponseMessage(HttpStatusCode.InternalServerError));
+        var cut = RenderLoaded();
+        Assert.Single(cut.FindAll("svg.chart-svg"));
+
+        cut.Find("button[aria-label='Remove GBP']").Click();
+
+        cut.WaitForAssertion(() => Assert.Single(cut.FindAll("[role=alert]")));
+        Assert.Empty(cut.FindAll("svg.chart-svg"));
+    }
+
+    [Fact]
+    public void Chart_IsHiddenWithNoQuotes()
+    {
+        var cut = RenderLoaded();
+        Assert.Single(cut.FindAll("svg.chart-svg"));
+
+        foreach (var code in new[] { "EUR", "GBP", "JPY" })
+        {
+            cut.Find($"button[aria-label='Remove {code}']").Click();
+        }
+
+        cut.WaitForAssertion(() => Assert.Empty(cut.FindAll("svg.chart-svg")));
+    }
+
+    [Fact]
+    public void ChartSection_IsBusyWhileLoading()
+    {
+        var pending = new TaskCompletionSource<HttpResponseMessage>();
+        api.RatesResponse = (q, ct) => api.RateQueries.Count == 1
+            ? Task.FromResult(StubHttpHandler.Json(api.BuildRatesJson(q)))
+            : pending.Task.WaitAsync(ct);
+        var cut = RenderLoaded();
+        Assert.Equal("false", cut.Find("section.chart-section").GetAttribute("aria-busy"));
+
+        cut.Find("button[aria-label='Remove GBP']").Click();
+
+        cut.WaitForAssertion(() => Assert.Equal("true", cut.Find("section.chart-section").GetAttribute("aria-busy")));
+        Assert.Equal(3, cut.FindAll("polyline.series-line").Count); // previous render held while refetching
+    }
+
+    [Fact]
+    public void Colors_AreAssignedInOrderInitially()
+    {
+        var cut = RenderLoaded();
+
+        Assert.Equal(["EUR:slot-1", "GBP:slot-2", "JPY:slot-3"], LegendSlots(cut));
+    }
+
+    [Fact]
+    public void Colors_StayWithTheirCurrencyWhenOthersAreRemoved()
+    {
+        var cut = RenderLoaded();
+
+        cut.Find("button[aria-label='Remove GBP']").Click();
+
+        cut.WaitForAssertion(() => Assert.Equal(["EUR:slot-1", "JPY:slot-3"], LegendSlots(cut)));
+    }
+
+    [Fact]
+    public void Colors_NewCurrencyTakesTheLowestFreeSlot()
+    {
+        var cut = RenderLoaded();
+        cut.Find("button[aria-label='Remove GBP']").Click();
+
+        cut.Find("select[aria-label='Add currency']").Change("CHF");
+
+        cut.WaitForAssertion(() => Assert.Equal(["EUR:slot-1", "JPY:slot-3", "CHF:slot-2"], LegendSlots(cut)));
+    }
+
+    [Fact]
+    public void Colors_BaseChangeFreesTheRemovedQuotesSlot()
+    {
+        var cut = RenderLoaded();
+
+        cut.Find("section.controls select").Change("EUR");
+        cut.WaitForAssertion(() => Assert.Equal(["GBP:slot-2", "JPY:slot-3"], LegendSlots(cut)));
+
+        cut.Find("select[aria-label='Add currency']").Change("CHF");
+        cut.WaitForAssertion(() => Assert.Equal(["GBP:slot-2", "JPY:slot-3", "CHF:slot-1"], LegendSlots(cut)));
+    }
+
+    [Fact]
+    public void Quotes_AreCappedAtEight()
+    {
+        string[] extra = ["AUD", "CAD", "CHF", "CNY", "HKD", "NZD"];
+        api.CurrenciesJson = "[" + string.Join(",", extra.Concat(["EUR", "GBP", "JPY", "USD"])
+            .Select(c => $$"""{"iso_code":"{{c}}","name":"{{c}} name","symbol":null}""")) + "]";
+        foreach (var code in extra)
+        {
+            api.Series[code] = (1m, 1.01m);
+        }
+        var cut = RenderLoaded();
+
+        foreach (var code in extra.Take(5))
+        {
+            Assert.False(cut.Find("select[aria-label='Add currency']").HasAttribute("disabled"));
+            cut.Find("select[aria-label='Add currency']").Change(code);
+        }
+
+        cut.WaitForAssertion(() => Assert.Equal(8, ChipCodes(cut).Length));
+        Assert.True(cut.Find("select[aria-label='Add currency']").HasAttribute("disabled"));
+        Assert.Contains("Up to 8 currencies", cut.Find(".chips").TextContent);
+        Assert.Equal(
+            ["slot-1", "slot-2", "slot-3", "slot-4", "slot-5", "slot-6", "slot-7", "slot-8"],
+            LineSlots(cut).Order());
+
+        cut.Find("button[aria-label='Remove EUR']").Click();
+        cut.WaitForAssertion(() => Assert.False(cut.Find("select[aria-label='Add currency']").HasAttribute("disabled")));
+    }
+
     // --- Concurrency -----------------------------------------------------------
 
     [Fact]

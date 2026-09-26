@@ -54,13 +54,17 @@ else
                     </span>
                 }
                 @* @key forces a fresh <select> after each add so it resets to the placeholder. *@
-                <select @key="quotes.Count" aria-label="Add currency" @onchange="AddQuoteAsync">
+                <select @key="quotes.Count" aria-label="Add currency" @onchange="AddQuoteAsync" disabled="@AtQuoteLimit">
                     <option value="">+ Add currency</option>
                     @foreach (var c in currencies.Where(c => c.IsoCode != baseCode && !quotes.Contains(c.IsoCode)))
                     {
                         <option value="@c.IsoCode">@c.IsoCode · @c.Name</option>
                     }
                 </select>
+                @if (AtQuoteLimit)
+                {
+                    <span class="muted small">Up to @MaxQuotes currencies</span>
+                }
             </div>
         </div>
     </section>
@@ -100,6 +104,13 @@ else
     {
         <p class="muted small">No rates published for @string.Join(", ", missing) in this date range.</p>
     }
+
+    @if (rows.Count > 0)
+    {
+        <section class="chart-section" aria-busy="@(loading ? "true" : "false")" aria-label="Chart">
+            <RateChart Rows="rows" Quotes="rowQuotes" BaseCode="@rowBase" ColorSlots="colorSlots" />
+        </section>
+    }
 }
 
 @code {
@@ -112,7 +123,20 @@ else
     private decimal amount = 1000m;
     private DateOnly from;
     private DateOnly to;
+    // The chart palette has 8 validated colors; more series would need a 9th, generated hue.
+    private const int MaxQuotes = 8;
+
     private readonly List<string> quotes = ["EUR", "GBP", "JPY"];
+    // Palette slot (1–8) per quote. A currency keeps its slot while selected, so removing
+    // one never repaints the others; a new currency takes the lowest free slot.
+    private readonly Dictionary<string, int> colorSlots = new() { ["EUR"] = 1, ["GBP"] = 2, ["JPY"] = 3 };
+
+    private bool AtQuoteLimit => quotes.Count >= MaxQuotes;
+
+    // The rows behind the chart, with the base and quotes they were fetched for.
+    private IReadOnlyList<Rate> rows = [];
+    private string rowBase = "";
+    private IReadOnlyList<string> rowQuotes = [];
 
     private IReadOnlyList<RateSummary> summaries = [];
     private IReadOnlyList<string> missing = [];
@@ -141,14 +165,16 @@ else
     private async Task OnBaseChangedAsync()
     {
         quotes.Remove(baseCode);
+        colorSlots.Remove(baseCode);
         await LoadRatesAsync();
     }
 
     private async Task AddQuoteAsync(ChangeEventArgs e)
     {
-        if (e.Value is string code && code.Length > 0 && !quotes.Contains(code))
+        if (e.Value is string code && code.Length > 0 && !quotes.Contains(code) && !AtQuoteLimit)
         {
             quotes.Add(code);
+            colorSlots[code] = Enumerable.Range(1, MaxQuotes).First(slot => !colorSlots.ContainsValue(slot));
             await LoadRatesAsync();
         }
     }
@@ -156,7 +182,15 @@ else
     private async Task RemoveQuoteAsync(string code)
     {
         quotes.Remove(code);
+        colorSlots.Remove(code);
         await LoadRatesAsync();
+    }
+
+    private void ClearResults()
+    {
+        summaries = [];
+        missing = [];
+        rows = [];
     }
 
     private async Task LoadRatesAsync()
@@ -168,28 +202,29 @@ else
         rateError = null;
         if (quotes.Count == 0)
         {
-            summaries = [];
-            missing = [];
+            ClearResults();
             return;
         }
         if (from > to)
         {
             rateError = "The From date must be on or before the To date.";
-            summaries = [];
-            missing = [];
+            ClearResults();
             return;
         }
 
         loading = true;
+        var requestBase = baseCode;
+        var requestQuotes = quotes.ToList();
         try
         {
-            var rows = await Api.GetRatesAsync(baseCode, quotes, from, to, token);
+            var fetched = await Api.GetRatesAsync(requestBase, requestQuotes, from, to, token);
             if (token.IsCancellationRequested)
             {
                 return; // Superseded by a newer request; don't overwrite its results.
             }
-            summaries = RateSummary.FromRates(rows, quotes);
-            missing = quotes.Except(summaries.Select(s => s.Quote)).ToList();
+            summaries = RateSummary.FromRates(fetched, requestQuotes);
+            missing = requestQuotes.Except(summaries.Select(s => s.Quote)).ToList();
+            (rows, rowBase, rowQuotes) = (fetched, requestBase, requestQuotes);
         }
         catch (OperationCanceledException) when (token.IsCancellationRequested)
         {
@@ -202,8 +237,7 @@ else
                 return; // A stale request failed; the newer one owns the UI.
             }
             rateError = $"Couldn't load rates: {ex.Message}";
-            summaries = [];
-            missing = [];
+            ClearResults();
         }
         finally
         {

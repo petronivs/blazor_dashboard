@@ -1,0 +1,187 @@
+@using System.Globalization
+@using BlazorDashboard.Services
+
+@if (!chart.IsEmpty)
+{
+    <figure class="chart">
+        <figcaption>
+            <div class="chart-title">Change since @chart.Columns[0].Date.ToString("MMM d")</div>
+            <div class="chart-subtitle muted small">% change in the price of 1 @BaseCode, in each currency</div>
+        </figcaption>
+
+        @if (chart.Series.Count >= 2)
+        {
+            <ul class="chart-legend">
+                @foreach (var s in chart.Series)
+                {
+                    <li>
+                        <svg class="legend-key @SlotClass(s.Quote)" viewBox="0 0 16 8" aria-hidden="true"><line x1="0" y1="4" x2="16" y2="4" /></svg>
+                        @s.Quote
+                    </li>
+                }
+            </ul>
+        }
+
+        <div class="chart-frame">
+            <svg class="chart-svg" viewBox="0 0 @F(RateChartLayout.Width) @F(RateChartLayout.Height)"
+                 role="img" tabindex="0" aria-label="@AriaLabel"
+                 @onkeydown="OnKeyDown" @onmouseleave="() => hovered = null">
+                @* SVG <text> is wrapped in <g> throughout: bare <text> in a code block is Razor's own tag. *@
+                @foreach (var tick in chart.YTicks)
+                {
+                    var isZero = Math.Abs(tick.Position - chart.ZeroY) < 0.001;
+                    <g>
+                        <line class="gridline @(isZero ? "zero-line" : null)"
+                              x1="@F(RateChartLayout.PlotLeft)" x2="@F(RateChartLayout.PlotRight)" y1="@F(tick.Position)" y2="@F(tick.Position)" />
+                        <text class="tick-label y" x="@F(RateChartLayout.PlotLeft - 8)" y="@F(tick.Position)">@tick.Label</text>
+                    </g>
+                }
+                @foreach (var tick in chart.XTicks)
+                {
+                    <g>
+                        <text class="tick-label x" x="@F(tick.Position)" y="@F(RateChartLayout.PlotBottom + 20)">@tick.Label</text>
+                    </g>
+                }
+
+                @foreach (var s in chart.Series)
+                {
+                    <polyline class="series-line @SlotClass(s.Quote)" points="@s.SvgPoints" />
+                    <circle class="series-end @SlotClass(s.Quote)" cx="@F(s.Last.X)" cy="@F(s.Last.Y)" r="4" />
+                }
+
+                @if (chart.Series.Count <= MaxDirectLabels)
+                {
+                    @foreach (var s in chart.Series)
+                    {
+                        <g>
+                            <text class="direct-label" x="@F(RateChartLayout.PlotRight + 8)" y="@F(s.LabelY)">@s.Quote @FormatChange(s.Last.Change)</text>
+                        </g>
+                    }
+                }
+
+                @if (HoveredColumn is { } col)
+                {
+                    <line class="crosshair" x1="@F(col.X)" x2="@F(col.X)" y1="@F(RateChartLayout.PlotTop)" y2="@F(RateChartLayout.PlotBottom)" />
+                    @foreach (var (s, p) in PointsAt(col.Date))
+                    {
+                        if (p is not null)
+                        {
+                            <circle class="hover-dot @SlotClass(s.Quote)" cx="@F(p.X)" cy="@F(p.Y)" r="5" />
+                        }
+                    }
+                }
+
+                @for (var i = 0; i < chart.Columns.Count; i++)
+                {
+                    var index = i;
+                    var c = chart.Columns[i];
+                    <rect class="hit" x="@F(c.Start)" y="@F(RateChartLayout.PlotTop)" width="@F(c.End - c.Start)" height="@F(RateChartLayout.PlotBottom - RateChartLayout.PlotTop)"
+                          @onmouseenter="() => hovered = index" />
+                }
+            </svg>
+
+            @if (HoveredColumn is { } tip)
+            {
+                <div class="chart-tooltip @(tip.X > RateChartLayout.Width / 2 ? "flip" : null)" style="left: @F(tip.X / RateChartLayout.Width * 100)%" aria-live="polite">
+                    <div class="tooltip-date">@tip.Date.ToString("MMM d, yyyy")</div>
+                    @foreach (var (s, p) in PointsAt(tip.Date))
+                    {
+                        <div class="tooltip-row">
+                            <span class="tooltip-key @SlotClass(s.Quote)" aria-hidden="true"></span>
+                            <strong>@(p is null ? "—" : FormatChange(p.Change))</strong>
+                            <span class="muted">@s.Quote @(p is null ? null : NumberFormat.Adaptive(p.Rate))</span>
+                        </div>
+                    }
+                </div>
+            }
+        </div>
+
+        <details class="chart-table">
+            <summary>Show data table</summary>
+            <table>
+                <thead>
+                    <tr>
+                        <th scope="col">Date</th>
+                        @foreach (var s in chart.Series)
+                        {
+                            <th scope="col">@s.Quote</th>
+                        }
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var c in chart.Columns)
+                    {
+                        <tr>
+                            <th scope="row">@c.Date.ToString("MMM d, yyyy")</th>
+                            @foreach (var (_, p) in PointsAt(c.Date))
+                            {
+                                <td>@(p is null ? "—" : NumberFormat.Adaptive(p.Rate))</td>
+                            }
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </details>
+    </figure>
+}
+
+@code {
+    private const int MaxDirectLabels = 4;
+
+    [Parameter, EditorRequired] public IReadOnlyList<Rate> Rows { get; set; } = [];
+    [Parameter, EditorRequired] public IReadOnlyList<string> Quotes { get; set; } = [];
+    [Parameter, EditorRequired] public string BaseCode { get; set; } = "";
+
+    /// <summary>Palette slot (1–8) per quote, so a currency keeps its color as others come and go.</summary>
+    [Parameter] public IReadOnlyDictionary<string, int>? ColorSlots { get; set; }
+
+    private RateChartLayout chart = RateChartLayout.Build([], []);
+    private IReadOnlyList<Rate>? chartRows;
+    private int? hovered;
+
+    private ChartColumn? HoveredColumn => hovered is { } i ? chart.Columns[i] : null;
+
+    private string AriaLabel =>
+        $"Line chart of percent change against {BaseCode} for {string.Join(", ", chart.Series.Select(s => s.Quote))} " +
+        $"from {chart.Columns[0].Date:MMM d, yyyy} to {chart.Columns[^1].Date:MMM d, yyyy}. Use the arrow keys to read values by date.";
+
+    protected override void OnParametersSet()
+    {
+        if (!ReferenceEquals(Rows, chartRows))
+        {
+            chart = RateChartLayout.Build(Rows, Quotes, CultureInfo.CurrentCulture);
+            chartRows = Rows;
+            hovered = null;
+        }
+    }
+
+    private void OnKeyDown(KeyboardEventArgs e)
+    {
+        var last = chart.Columns.Count - 1;
+        hovered = e.Key switch
+        {
+            "ArrowRight" => hovered is { } i ? Math.Min(i + 1, last) : 0,
+            "ArrowLeft" => hovered is { } i ? Math.Max(i - 1, 0) : last,
+            "Home" => 0,
+            "End" => last,
+            "Escape" => null,
+            _ => hovered,
+        };
+    }
+
+    /// <summary>Each series with its point on <paramref name="date"/>, or null where it has no rate that day.</summary>
+    private IEnumerable<(ChartSeries Series, ChartPoint? Point)> PointsAt(DateOnly date) =>
+        chart.Series.Select(s => (s, s.Points.FirstOrDefault(p => p.Date == date)));
+
+    private string SlotClass(string quote)
+    {
+        var slot = ColorSlots is not null && ColorSlots.TryGetValue(quote, out var assigned)
+            ? assigned
+            : chart.Series.ToList().FindIndex(s => s.Quote == quote) + 1;
+        return $"slot-{slot}";
+    }
+
+    private static string FormatChange(decimal change) => change.ToString("+0.00%;-0.00%");
+
+    private static string F(double value) => value.ToString("0.##", CultureInfo.InvariantCulture);
+}

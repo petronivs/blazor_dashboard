@@ -17,18 +17,6 @@ public sealed record RateSummary(string Quote, Rate First, Rate Last)
                 var ordered = g.OrderBy(r => r.Date).ToList();
                 return new RateSummary(g.Key, ordered[0], ordered[^1]);
             })
-            .OrderBy(s => IndexOf(quoteOrder, s.Quote))
+            .OrderBy(s => quoteOrder.IndexOf(s.Quote))
             .ToList();
-
-    private static int IndexOf(IReadOnlyList<string> list, string value)
-    {
-        for (var i = 0; i < list.Count; i++)
-        {
-            if (list[i] == value)
-            {
-                return i;
-            }
-        }
-        return -1;
-    }
 }
