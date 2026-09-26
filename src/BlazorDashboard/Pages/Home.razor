@@ -121,6 +121,8 @@ else
 @code {
     private DateOnly Today => DateOnly.FromDateTime(Clock.GetLocalNow().DateTime);
     private static readonly string[] DefaultQuotes = ["EUR", "GBP", "JPY"];
+    private DateOnly DefaultTo => Today;
+    private DateOnly DefaultFrom => DefaultTo.AddDays(-30);
 
     private IReadOnlyList<Currency>? currencies;
     private string? loadError;
@@ -152,8 +154,7 @@ else
 
     protected override async Task OnInitializedAsync()
     {
-        to = Today;
-        from = to.AddDays(-30);
+        SetDefaultDateRange();
 
         try
         {
@@ -204,8 +205,8 @@ else
         await StateStore.SaveAsync(new DashboardState(
             baseCode,
             amount,
-            from,
-            to,
+            HasDefaultDateRange ? null : from,
+            HasDefaultDateRange ? null : to,
             quotes.ToList(),
             colorSlots.ToDictionary(entry => entry.Key, entry => entry.Value)));
 
@@ -218,7 +219,7 @@ else
 
         var validCodes = currencies.Select(c => c.IsoCode).ToHashSet(StringComparer.Ordinal);
 
-        if (validCodes.Contains(state.BaseCode))
+        if (state.BaseCode is not null && validCodes.Contains(state.BaseCode))
         {
             baseCode = state.BaseCode;
         }
@@ -228,34 +229,49 @@ else
             amount = state.Amount;
         }
 
-        from = state.From > Today ? Today : state.From;
-        to = state.To > Today ? Today : state.To;
-        if (to < from)
+        if (state.From is { } savedFrom &&
+            state.To is { } savedTo &&
+            savedFrom != default &&
+            savedTo != default &&
+            savedFrom <= savedTo &&
+            savedTo <= Today)
         {
-            to = from;
+            from = savedFrom;
+            to = savedTo;
         }
 
-        quotes.Clear();
-        quotes.AddRange(state.Quotes
-            .Where(code => validCodes.Contains(code) && code != baseCode)
-            .Distinct()
-            .Take(MaxQuotes));
-
-        colorSlots.Clear();
-        foreach (var quote in quotes)
+        if (state.Quotes is not null)
         {
-            if (state.ColorSlots is not null &&
-                state.ColorSlots.TryGetValue(quote, out var slot) &&
-                slot >= 1 &&
-                slot <= MaxQuotes &&
-                !colorSlots.ContainsValue(slot))
+            quotes.Clear();
+            quotes.AddRange(state.Quotes
+                .Where(code => validCodes.Contains(code) && code != baseCode)
+                .Distinct()
+                .Take(MaxQuotes));
+
+            colorSlots.Clear();
+            foreach (var quote in quotes)
             {
-                colorSlots[quote] = slot;
-                continue;
-            }
+                if (state.ColorSlots is not null &&
+                    state.ColorSlots.TryGetValue(quote, out var slot) &&
+                    slot >= 1 &&
+                    slot <= MaxQuotes &&
+                    !colorSlots.ContainsValue(slot))
+                {
+                    colorSlots[quote] = slot;
+                    continue;
+                }
 
-            colorSlots[quote] = NextFreeSlot();
+                colorSlots[quote] = NextFreeSlot();
+            }
         }
+    }
+
+    private bool HasDefaultDateRange => from == DefaultFrom && to == DefaultTo;
+
+    private void SetDefaultDateRange()
+    {
+        to = DefaultTo;
+        from = DefaultFrom;
     }
 
     private int NextFreeSlot() =>

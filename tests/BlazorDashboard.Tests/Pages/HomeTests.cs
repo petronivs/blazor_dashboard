@@ -1,6 +1,5 @@
 using System.Globalization;
 using System.Net;
-using System.Text.Json;
 using BlazorDashboard.Pages;
 using BlazorDashboard.Services;
 using BlazorDashboard.Tests.TestSupport;
@@ -14,13 +13,15 @@ public class HomeTests : BunitContext
     private static readonly DateTimeOffset Now = new(2026, 9, 25, 12, 0, 0, TimeSpan.Zero);
 
     private readonly FakeFrankfurterApi api = new();
+    private readonly FakeDashboardStateStore stateStore = new();
 
     public HomeTests()
     {
         CultureInfo.CurrentCulture = CultureInfo.CurrentUICulture = new CultureInfo("en-US");
         Services.AddSingleton<TimeProvider>(new FixedTimeProvider(Now));
         Services.AddSingleton(_ => api.CreateClient());
-        Services.AddScoped<IDashboardStateStore, CookieDashboardStateStore>();
+        Services.AddSingleton(stateStore);
+        Services.AddSingleton<IDashboardStateStore>(stateStore);
     }
 
     private IRenderedComponent<Home> RenderLoaded()
@@ -81,11 +82,13 @@ public class HomeTests : BunitContext
     [Fact]
     public void SavedState_InitialLoadUsesRememberedSelections()
     {
-        JSInterop.Mode = JSRuntimeMode.Loose;
-        JSInterop.Setup<string?>("dashboardCookies.get").SetResult(
-            """
-            {"baseCode":"CHF","amount":250.5,"from":"2026-08-01","to":"2026-08-31","quotes":["JPY","EUR"]}
-            """);
+        stateStore.LoadedState = new DashboardState(
+            "CHF",
+            250.5m,
+            new DateOnly(2026, 8, 1),
+            new DateOnly(2026, 8, 31),
+            ["JPY", "EUR"],
+            null);
 
         var cut = RenderLoaded();
 
@@ -106,62 +109,107 @@ public class HomeTests : BunitContext
     }
 
     [Fact]
-    public void SavedState_ClampsRememberedDatesToValidRange()
+    public void SavedState_UsesDefaultsWhenBaseCodeOrQuotesAreMissing()
     {
-        JSInterop.Mode = JSRuntimeMode.Loose;
-        JSInterop.Setup<string?>("dashboardCookies.get").SetResult(
-            """
-            {"baseCode":"USD","amount":1000,"from":"2026-09-30","to":"2026-10-02","quotes":["EUR","JPY"]}
-            """);
+        stateStore.LoadedState = new DashboardState(
+            null!,
+            250m,
+            new DateOnly(2026, 8, 1),
+            new DateOnly(2026, 8, 31),
+            null!,
+            null);
 
         var cut = RenderLoaded();
 
         var query = Assert.Single(api.RateQueries);
-        Assert.Equal(new DateOnly(2026, 9, 25), query.From);
+        Assert.Equal("USD", query.Base);
+        Assert.Equal(["EUR", "GBP", "JPY"], query.Quotes);
+        Assert.Equal(new DateOnly(2026, 8, 1), query.From);
+        Assert.Equal(new DateOnly(2026, 8, 31), query.To);
+
+        Assert.Equal("USD", cut.Find("section.controls select").GetAttribute("value"));
+        Assert.Equal(["EUR", "GBP", "JPY"], ChipCodes(cut));
+    }
+
+    [Fact]
+    public void SavedState_UsesDefaultRangeWhenDatesAreMissing()
+    {
+        stateStore.LoadedState = new DashboardState(
+            "USD",
+            1000m,
+            default,
+            default,
+            ["EUR", "JPY"],
+            null);
+
+        var cut = RenderLoaded();
+
+        var query = Assert.Single(api.RateQueries);
+        Assert.Equal(new DateOnly(2026, 8, 26), query.From);
         Assert.Equal(new DateOnly(2026, 9, 25), query.To);
 
         var dates = cut.FindAll("input[type=date]");
-        Assert.Equal("2026-09-25", dates[0].GetAttribute("value"));
+        Assert.Equal("2026-08-26", dates[0].GetAttribute("value"));
         Assert.Equal("2026-09-25", dates[1].GetAttribute("value"));
         Assert.Empty(cut.FindAll("[role=alert]"));
     }
 
     [Fact]
-    public void SavedState_ClampsRememberedToDateUpToRememberedFromDate()
+    public void SavedState_UsesDefaultRangeWhenDatesAreInvalid()
     {
-        JSInterop.Mode = JSRuntimeMode.Loose;
-        JSInterop.Setup<string?>("dashboardCookies.get").SetResult(
-            """
-            {"baseCode":"USD","amount":1000,"from":"2026-09-20","to":"2026-09-10","quotes":["EUR","JPY"]}
-            """);
+        stateStore.LoadedState = new DashboardState(
+            "USD",
+            1000m,
+            new DateOnly(2026, 9, 30),
+            new DateOnly(2026, 10, 2),
+            ["EUR", "JPY"],
+            null);
 
         var cut = RenderLoaded();
 
         var query = Assert.Single(api.RateQueries);
-        Assert.Equal(new DateOnly(2026, 9, 20), query.From);
-        Assert.Equal(new DateOnly(2026, 9, 20), query.To);
+        Assert.Equal(new DateOnly(2026, 8, 26), query.From);
+        Assert.Equal(new DateOnly(2026, 9, 25), query.To);
 
         var dates = cut.FindAll("input[type=date]");
-        Assert.Equal("2026-09-20", dates[0].GetAttribute("value"));
-        Assert.Equal("2026-09-20", dates[1].GetAttribute("value"));
+        Assert.Equal("2026-08-26", dates[0].GetAttribute("value"));
+        Assert.Equal("2026-09-25", dates[1].GetAttribute("value"));
+        Assert.Empty(cut.FindAll("[role=alert]"));
+    }
+
+    [Fact]
+    public void SavedState_UsesDefaultRangeWhenToDateIsBeforeFromDate()
+    {
+        stateStore.LoadedState = new DashboardState(
+            "USD",
+            1000m,
+            new DateOnly(2026, 9, 20),
+            new DateOnly(2026, 9, 10),
+            ["EUR", "JPY"],
+            null);
+
+        var cut = RenderLoaded();
+
+        var query = Assert.Single(api.RateQueries);
+        Assert.Equal(new DateOnly(2026, 8, 26), query.From);
+        Assert.Equal(new DateOnly(2026, 9, 25), query.To);
+
+        var dates = cut.FindAll("input[type=date]");
+        Assert.Equal("2026-08-26", dates[0].GetAttribute("value"));
+        Assert.Equal("2026-09-25", dates[1].GetAttribute("value"));
         Assert.Empty(cut.FindAll("[role=alert]"));
     }
 
     [Fact]
     public void SavedState_RestoresRememberedColorSlots()
     {
-        JSInterop.Mode = JSRuntimeMode.Loose;
-        JSInterop.Setup<string?>("dashboardCookies.get").SetResult(
-            """
-            {
-              "baseCode":"CHF",
-              "amount":250.5,
-              "from":"2026-08-01",
-              "to":"2026-08-31",
-              "quotes":["JPY","EUR","GBP"],
-              "colorSlots":{"JPY":3,"EUR":1,"GBP":2}
-            }
-            """);
+        stateStore.LoadedState = new DashboardState(
+            "CHF",
+            250.5m,
+            new DateOnly(2026, 8, 1),
+            new DateOnly(2026, 8, 31),
+            ["JPY", "EUR", "GBP"],
+            new Dictionary<string, int> { ["JPY"] = 3, ["EUR"] = 1, ["GBP"] = 2 });
 
         var cut = RenderLoaded();
 
@@ -448,26 +496,18 @@ public class HomeTests : BunitContext
     [Fact]
     public void ChangingSelections_SavesStateToCookie()
     {
-        JSInterop.Mode = JSRuntimeMode.Loose;
-        JSInterop.SetupVoid("dashboardCookies.set");
-
         var cut = RenderLoaded();
 
         cut.Find("button[aria-label='Remove GBP']").Click();
         cut.WaitForAssertion(() => Assert.Equal(["EUR", "JPY"], CardCodes(cut)));
         cut.Find("input[type=number]").Change("250");
 
-        var saved = JSInterop.Invocations
-            .Where(invocation => invocation.Identifier == "dashboardCookies.set")
-            .Select(invocation => invocation.Arguments[0]?.ToString())
-            .Last();
-
-        using var document = JsonDocument.Parse(saved!);
-        Assert.Equal("USD", document.RootElement.GetProperty("baseCode").GetString());
-        Assert.Equal(250m, document.RootElement.GetProperty("amount").GetDecimal());
-        Assert.Equal("2026-08-26", document.RootElement.GetProperty("from").GetString());
-        Assert.Equal("2026-09-25", document.RootElement.GetProperty("to").GetString());
-        Assert.Equal(["EUR", "JPY"], document.RootElement.GetProperty("quotes").EnumerateArray().Select(e => e.GetString()!).ToArray());
+        var saved = stateStore.SavedStates.Last();
+        Assert.Equal("USD", saved.BaseCode);
+        Assert.Equal(250m, saved.Amount);
+        Assert.Null(saved.From);
+        Assert.Null(saved.To);
+        Assert.Equal(["EUR", "JPY"], saved.Quotes);
     }
 
     // --- Chart -------------------------------------------------------------------
