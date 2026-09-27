@@ -17,11 +17,30 @@ public class AppTests : BunitContext
     }
 
     [Fact]
-    public void RootRoute_RendersDashboardInsideMainLayout()
+    public void StaticHostPage_UsesWorldFinanceTitle()
+    {
+        var indexHtmlPath = Path.GetFullPath(Path.Combine(
+            AppContext.BaseDirectory,
+            "..", "..", "..", "..", "..",
+            "src", "BlazorDashboard", "wwwroot", "index.html"));
+
+        Assert.Contains("<title>World Finance Dashboard</title>", File.ReadAllText(indexHtmlPath));
+    }
+
+    [Fact]
+    public void RootRoute_RendersWorldFinanceDashboardShellInsideMainLayout()
     {
         var cut = Render<App>();
 
-        cut.WaitForAssertion(() => Assert.Equal("FX Dashboard", cut.Find("main.container h1").TextContent));
+        cut.WaitForAssertion(() =>
+        {
+            Assert.Equal("World Finance Dashboard", cut.Find("main.container h1").TextContent);
+
+            var tab = cut.Find(".dashboard-tabs .dashboard-tab-active");
+            Assert.Equal("Foreign exchange", tab.TextContent.Trim());
+            Assert.Equal("#panel-foreign-exchange", tab.GetAttribute("href"));
+            Assert.Equal("FX Dashboard", cut.Find("main.container h2").TextContent);
+        });
     }
 
     [Fact]
