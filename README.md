@@ -198,7 +198,7 @@ dotnet reportgenerator -reports:"TestResults/*/coverage.cobertura.xml" -targetdi
 
 Open `TestResults/coverage-report/index.html` for the full report.
 
-**Current coverage:** 144 tests; line/branch coverage remains ~98% overall. Everything except `Program.cs` (startup wiring, which tests don't run) is at or near 100%.
+**Current coverage:** 160 tests; line/branch coverage remains ~98% overall. Everything except `Program.cs` (startup wiring, which tests don't run) is at or near 100%.
 
 ## CI and deployment
 
