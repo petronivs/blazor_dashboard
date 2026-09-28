@@ -8,8 +8,10 @@
 </header>
 
 <section class="dashboard-shell" aria-label="World Finance dashboard">
-    <nav class="dashboard-tabs" aria-label="World Finance data sources">
+    <nav class="dashboard-tabs" aria-label="World Finance data sources" role="tablist">
         <button type="button"
+                id="tab-foreign-exchange"
+                role="tab"
                 class="dashboard-tab @(activeTab == HomeTab.ForeignExchange ? "dashboard-tab-active" : null)"
                 data-tab="foreign-exchange"
                 aria-controls="panel-foreign-exchange"
@@ -18,6 +20,8 @@
             Foreign exchange
         </button>
         <button type="button"
+                id="tab-inflation"
+                role="tab"
                 class="dashboard-tab @(activeTab == HomeTab.Inflation ? "dashboard-tab-active" : null)"
                 data-tab="inflation"
                 aria-controls="panel-inflation"
@@ -29,13 +33,13 @@
 
     @if (activeTab == HomeTab.ForeignExchange)
     {
-        <section id="panel-foreign-exchange" class="dashboard-panel">
+        <section id="panel-foreign-exchange" class="dashboard-panel" role="tabpanel" aria-labelledby="tab-foreign-exchange">
             <FxDashboard />
         </section>
     }
     else
     {
-        <section id="panel-inflation" class="dashboard-panel">
+        <section id="panel-inflation" class="dashboard-panel" role="tabpanel" aria-labelledby="tab-inflation">
             <InflationDashboard />
         </section>
     }

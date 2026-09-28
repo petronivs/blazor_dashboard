@@ -1,5 +1,4 @@
 using System.Globalization;
-using System.Net.Http.Json;
 using System.Text.Json;
 
 namespace BlazorDashboard.Services;
@@ -46,12 +45,23 @@ public sealed class WorldBankClient(HttpClient http)
 
     private async Task<IReadOnlyList<T>> GetRowsAsync<T>(string url, CancellationToken ct)
     {
-        var envelope = await http.GetFromJsonAsync<List<JsonElement>>(url, ct) ?? [];
-        if (envelope.Count < 2 || envelope[1].ValueKind is JsonValueKind.Null or JsonValueKind.Undefined)
+        using var response = await http.GetAsync(url, ct);
+        response.EnsureSuccessStatusCode();
+
+        await using var stream = await response.Content.ReadAsStreamAsync(ct);
+        using var doc = await JsonDocument.ParseAsync(stream, cancellationToken: ct);
+
+        if (doc.RootElement.ValueKind != JsonValueKind.Array || doc.RootElement.GetArrayLength() < 2)
         {
             return [];
         }
 
-        return JsonSerializer.Deserialize<List<T>>(envelope[1].GetRawText()) ?? [];
+        var rows = doc.RootElement[1];
+        if (rows.ValueKind is JsonValueKind.Null or JsonValueKind.Undefined)
+        {
+            return [];
+        }
+
+        return rows.Deserialize<List<T>>() ?? [];
     }
 }

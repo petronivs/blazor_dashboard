@@ -127,6 +127,6 @@ public class WorldBankClientTests
     {
         var (client, _) = Create("not json");
 
-        await Assert.ThrowsAsync<JsonException>(() => client.GetCountriesAsync());
+        await Assert.ThrowsAnyAsync<JsonException>(() => client.GetCountriesAsync());
     }
 }

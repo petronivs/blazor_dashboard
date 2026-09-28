@@ -142,7 +142,6 @@
     [Parameter] public IReadOnlyDictionary<string, int>? ColorSlots { get; set; }
 
     private RateChartLayout chart = RateChartLayout.Build([], []);
-    private IReadOnlyList<Rate>? chartRows;
     private int? hovered;
 
     private ChartColumn? HoveredColumn => hovered is { } i ? chart.Columns[i] : null;
@@ -155,18 +154,14 @@
 
     protected override void OnParametersSet()
     {
-        if (!ReferenceEquals(Rows, chartRows))
-        {
-            chart = RateChartLayout.Build(
-                Rows,
-                Quotes,
-                CultureInfo.CurrentCulture,
-                PlotMode,
-                IncludeZeroInYScale,
-                FormatYAxisTick);
-            chartRows = Rows;
-            hovered = null;
-        }
+        chart = RateChartLayout.Build(
+            Rows,
+            Quotes,
+            CultureInfo.CurrentCulture,
+            PlotMode,
+            IncludeZeroInYScale,
+            FormatYAxisTick);
+        hovered = null;
     }
 
     private void OnKeyDown(KeyboardEventArgs e)

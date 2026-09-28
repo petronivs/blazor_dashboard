@@ -193,7 +193,8 @@ else
     {
         cts?.Cancel();
         cts = new CancellationTokenSource();
-        var token = cts.Token;
+        var requestCts = cts;
+        var token = requestCts.Token;
 
         loadError = null;
 
@@ -203,12 +204,14 @@ else
             missing = [];
             rows = [];
             rowCountries = [];
+            loading = false;
             return;
         }
 
         if (fromYear > toYear)
         {
             loadError = "The From year must be on or before the To year.";
+            loading = false;
             return;
         }
 
@@ -254,7 +257,7 @@ else
         }
         finally
         {
-            if (!token.IsCancellationRequested)
+            if (ReferenceEquals(cts, requestCts))
             {
                 loading = false;
             }
