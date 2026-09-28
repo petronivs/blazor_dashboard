@@ -1,0 +1,268 @@
+@using BlazorDashboard.Charts
+@using BlazorDashboard.Services
+@implements IDisposable
+@inject WorldBankClient Api
+@inject TimeProvider Clock
+
+<header class="page-header">
+    <h2>Inflation Dashboard</h2>
+    <p class="muted">World Bank Indicators API: compare inflation across countries.</p>
+</header>
+
+@if (countries is null)
+{
+    <p class="muted">@(loadError ?? "Loading countries…")</p>
+}
+else
+{
+    <section class="controls" aria-label="Inputs">
+        <div class="field field-wide">
+            <span>Countries</span>
+            <div class="chips">
+                @foreach (var countryCode in selectedCountries)
+                {
+                    <span class="chip">
+                        @countryCode
+                        <button type="button" aria-label="Remove @countryCode" @onclick="() => RemoveCountryAsync(countryCode)">×</button>
+                    </span>
+                }
+                <select @key="selectedCountries.Count" aria-label="Add country" @onchange="AddCountryAsync" disabled="@AtCountryLimit">
+                    <option value="">+ Add country</option>
+                    @foreach (var c in countries.Where(c => !selectedCountries.Contains(c.Iso3Code)))
+                    {
+                        <option value="@c.Iso3Code">@c.Iso3Code · @c.Name</option>
+                    }
+                </select>
+                @if (AtCountryLimit)
+                {
+                    <span class="muted small">Up to @MaxCountries countries</span>
+                }
+            </div>
+        </div>
+
+        <label class="field">
+            <span>Indicator</span>
+            <select @bind="selectedIndicator" @bind:after="LoadInflationAsync">
+                @foreach (var indicator in indicators)
+                {
+                    <option value="@indicator.Id">@indicator.Label</option>
+                }
+            </select>
+        </label>
+
+        <label class="field">
+            <span>From year</span>
+            <input type="number" min="1960" max="@toYear" @bind="fromYear" @bind:after="LoadInflationAsync" />
+        </label>
+
+        <label class="field">
+            <span>To year</span>
+            <input type="number" min="@fromYear" max="@CurrentYear" @bind="toYear" @bind:after="LoadInflationAsync" />
+        </label>
+    </section>
+
+    @if (loadError is not null)
+    {
+        <p class="error" role="alert">@loadError</p>
+    }
+
+    <section class="cards" aria-busy="@(loading ? "true" : "false")" aria-label="Inflation summaries">
+        @foreach (var s in summaries)
+        {
+            <article class="card">
+                <header class="card-header">
+                    <span class="code">@s.CountryIso3Code</span>
+                    <span class="muted">@NameOf(s.CountryIso3Code)</span>
+                </header>
+                <div class="rate">@NumberFormat.Adaptive(s.Value)</div>
+                <div class="muted small">@s.Year</div>
+            </article>
+        }
+    </section>
+
+    @if (missing.Count > 0)
+    {
+        <p class="muted small">No data in this range: @string.Join(", ", missing)</p>
+    }
+
+    @if (rows.Count > 0)
+    {
+        <section class="chart-section" aria-busy="@(loading ? "true" : "false")" aria-label="Chart">
+            <RateChart Rows="rows"
+                       Quotes="rowCountries"
+                       BaseCode="@selectedIndicator"
+                       ColorSlots="colorSlots"
+                       PlotMode="RateChartPlotMode.RawValues"
+                       Title="Values by year"
+                       Subtitle="@SelectedIndicatorLabel"
+                       MetricFormat="0.##"
+                       TooltipShowsRate="false" />
+        </section>
+    }
+}
+
+@code {
+    private sealed record IndicatorOption(string Id, string Label);
+    private sealed record CountrySummary(string CountryIso3Code, int Year, decimal Value);
+
+    private static readonly IndicatorOption[] indicators =
+    [
+        new("FP.CPI.TOTL.ZG", "Inflation, consumer prices (annual %)"),
+        new("FP.CPI.TOTL", "Consumer price index (2010 = 100)"),
+    ];
+
+    private static readonly string[] DefaultCountries = ["USA", "DEU", "JPN", "GBR"];
+    private const int MaxCountries = 8;
+
+    private int CurrentYear => Clock.GetLocalNow().Year;
+
+    private IReadOnlyList<WorldBankCountry>? countries;
+    private string? loadError;
+
+    private readonly List<string> selectedCountries = [.. DefaultCountries];
+    private readonly Dictionary<string, int> colorSlots = new() { ["USA"] = 1, ["DEU"] = 2, ["JPN"] = 3, ["GBR"] = 4 };
+    private string selectedIndicator = indicators[0].Id;
+    private int fromYear;
+    private int toYear;
+
+    private bool AtCountryLimit => selectedCountries.Count >= MaxCountries;
+    private bool loading;
+    private CancellationTokenSource? cts;
+
+    private IReadOnlyList<Rate> rows = [];
+    private IReadOnlyList<string> rowCountries = [];
+    private IReadOnlyList<CountrySummary> summaries = [];
+    private IReadOnlyList<string> missing = [];
+
+    private string SelectedIndicatorLabel => indicators.First(i => i.Id == selectedIndicator).Label;
+
+    protected override async Task OnInitializedAsync()
+    {
+        toYear = CurrentYear - 1;
+        fromYear = toYear - 14;
+
+        try
+        {
+            countries = await Api.GetCountriesAsync();
+        }
+        catch (Exception ex) when (ex is HttpRequestException or System.Text.Json.JsonException)
+        {
+            loadError = $"Couldn't load countries: {ex.Message}";
+            return;
+        }
+
+        var valid = countries.Select(c => c.Iso3Code).ToHashSet(StringComparer.Ordinal);
+        selectedCountries.RemoveAll(code => !valid.Contains(code));
+        foreach (var code in colorSlots.Keys.Where(code => !selectedCountries.Contains(code)).ToList())
+        {
+            colorSlots.Remove(code);
+        }
+
+        foreach (var code in selectedCountries)
+        {
+            if (!colorSlots.ContainsKey(code))
+            {
+                colorSlots[code] = NextFreeSlot();
+            }
+        }
+
+        await LoadInflationAsync();
+    }
+
+    private async Task AddCountryAsync(ChangeEventArgs e)
+    {
+        if (e.Value is string code && code.Length > 0 && !selectedCountries.Contains(code) && !AtCountryLimit)
+        {
+            selectedCountries.Add(code);
+            colorSlots[code] = NextFreeSlot();
+            await LoadInflationAsync();
+        }
+    }
+
+    private async Task RemoveCountryAsync(string code)
+    {
+        selectedCountries.Remove(code);
+        colorSlots.Remove(code);
+        await LoadInflationAsync();
+    }
+
+    private int NextFreeSlot() =>
+        Enumerable.Range(1, MaxCountries).First(slot => !colorSlots.ContainsValue(slot));
+
+    private async Task LoadInflationAsync()
+    {
+        cts?.Cancel();
+        cts = new CancellationTokenSource();
+        var token = cts.Token;
+
+        loadError = null;
+
+        if (selectedCountries.Count == 0)
+        {
+            summaries = [];
+            missing = [];
+            rows = [];
+            rowCountries = [];
+            return;
+        }
+
+        if (fromYear > toYear)
+        {
+            loadError = "The From year must be on or before the To year.";
+            return;
+        }
+
+        loading = true;
+        var requestCountries = selectedCountries.ToList();
+
+        try
+        {
+            var fetched = await Api.GetIndicatorAsync(requestCountries, selectedIndicator, fromYear, toYear, token);
+            if (token.IsCancellationRequested)
+            {
+                return;
+            }
+
+            var grouped = fetched
+                .GroupBy(r => r.CountryIso3Code)
+                .ToDictionary(g => g.Key, g => g.OrderByDescending(r => r.Year).First());
+
+            summaries = requestCountries
+                .Where(grouped.ContainsKey)
+                .Select(code => grouped[code])
+                .Select(r => new CountrySummary(r.CountryIso3Code, r.Year, r.Value))
+                .ToList();
+
+            missing = requestCountries.Where(code => !grouped.ContainsKey(code)).ToList();
+            rowCountries = requestCountries;
+            rows = fetched
+                .Select(r => new Rate(new DateOnly(r.Year, 1, 1), selectedIndicator, r.CountryIso3Code, r.Value))
+                .ToList();
+        }
+        catch (OperationCanceledException) when (token.IsCancellationRequested)
+        {
+            // Superseded by a newer request.
+        }
+        catch (Exception ex) when (ex is HttpRequestException or System.Text.Json.JsonException)
+        {
+            if (token.IsCancellationRequested)
+            {
+                return;
+            }
+
+            loadError = $"Couldn't load indicator data: {ex.Message}";
+        }
+        finally
+        {
+            if (!token.IsCancellationRequested)
+            {
+                loading = false;
+            }
+        }
+    }
+
+    private string NameOf(string code) =>
+        countries?.FirstOrDefault(c => c.Iso3Code == code)?.Name ?? code;
+
+    public void Dispose() => cts?.Cancel();
+}

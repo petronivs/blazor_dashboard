@@ -5,8 +5,8 @@
 {
     <figure class="chart">
         <figcaption>
-            <div class="chart-title">Change since @chart.Columns[0].Date.ToString("MMM d")</div>
-            <div class="chart-subtitle muted small">% change in the price of 1 @BaseCode, in each currency</div>
+            <div class="chart-title">@TitleText</div>
+            <div class="chart-subtitle muted small">@SubtitleText</div>
         </figcaption>
 
         @if (chart.Series.Count >= 2)
@@ -54,7 +54,7 @@
                     @foreach (var s in chart.Series)
                     {
                         <g>
-                            <text class="direct-label" x="@F(RateChartLayout.PlotRight + 8)" y="@F(s.LabelY)">@s.Quote @FormatChange(s.Last.Change)</text>
+                            <text class="direct-label" x="@F(RateChartLayout.PlotRight + 8)" y="@F(s.LabelY)">@s.Quote @FormatMetric(s.Last.Change)</text>
                         </g>
                     }
                 }
@@ -88,8 +88,8 @@
                     {
                         <div class="tooltip-row">
                             <span class="tooltip-key @SlotClass(s.Quote)" aria-hidden="true"></span>
-                            <strong>@(p is null ? "—" : FormatChange(p.Change))</strong>
-                            <span class="muted">@s.Quote @(p is null ? null : NumberFormat.Adaptive(p.Rate))</span>
+                            <strong>@(p is null ? "—" : FormatMetric(p.Change))</strong>
+                            <span class="muted">@s.Quote @(p is null || !TooltipShowsRate ? null : NumberFormat.Adaptive(p.Rate))</span>
                         </div>
                     }
                 </div>
@@ -131,6 +131,12 @@
     [Parameter, EditorRequired] public IReadOnlyList<Rate> Rows { get; set; } = [];
     [Parameter, EditorRequired] public IReadOnlyList<string> Quotes { get; set; } = [];
     [Parameter, EditorRequired] public string BaseCode { get; set; } = "";
+    [Parameter] public RateChartPlotMode PlotMode { get; set; } = RateChartPlotMode.PercentChangeSinceFirst;
+    [Parameter] public bool IncludeZeroInYScale { get; set; } = true;
+    [Parameter] public string MetricFormat { get; set; } = "+0.00%;-0.00%";
+    [Parameter] public string? Title { get; set; }
+    [Parameter] public string? Subtitle { get; set; }
+    [Parameter] public bool TooltipShowsRate { get; set; } = true;
 
     /// <summary>Palette slot (1–8) per quote, so a currency keeps its color as others come and go.</summary>
     [Parameter] public IReadOnlyDictionary<string, int>? ColorSlots { get; set; }
@@ -140,16 +146,24 @@
     private int? hovered;
 
     private ChartColumn? HoveredColumn => hovered is { } i ? chart.Columns[i] : null;
+    private string TitleText => Title ?? $"Change since {chart.Columns[0].Date:MMM d}";
+    private string SubtitleText => Subtitle ?? $"% change in the price of 1 {BaseCode}, in each currency";
 
     private string AriaLabel =>
-        $"Line chart of percent change against {BaseCode} for {string.Join(", ", chart.Series.Select(s => s.Quote))} " +
+        $"Line chart of {(PlotMode == RateChartPlotMode.PercentChangeSinceFirst ? "percent change" : "values")} against {BaseCode} for {string.Join(", ", chart.Series.Select(s => s.Quote))} " +
         $"from {chart.Columns[0].Date:MMM d, yyyy} to {chart.Columns[^1].Date:MMM d, yyyy}. Use the arrow keys to read values by date.";
 
     protected override void OnParametersSet()
     {
         if (!ReferenceEquals(Rows, chartRows))
         {
-            chart = RateChartLayout.Build(Rows, Quotes, CultureInfo.CurrentCulture);
+            chart = RateChartLayout.Build(
+                Rows,
+                Quotes,
+                CultureInfo.CurrentCulture,
+                PlotMode,
+                IncludeZeroInYScale,
+                FormatYAxisTick);
             chartRows = Rows;
             hovered = null;
         }
@@ -181,7 +195,11 @@
         return $"slot-{slot}";
     }
 
-    private static string FormatChange(decimal change) => change.ToString("+0.00%;-0.00%");
+    private string FormatMetric(decimal value) => value.ToString(MetricFormat, CultureInfo.CurrentCulture);
+
+    private string FormatYAxisTick(decimal value) => PlotMode == RateChartPlotMode.PercentChangeSinceFirst
+        ? value.ToString("+0.##%;-0.##%;0%", CultureInfo.CurrentCulture)
+        : FormatMetric(value);
 
     private static string F(double value) => value.ToString("0.##", CultureInfo.InvariantCulture);
 }

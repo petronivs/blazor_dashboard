@@ -6,7 +6,7 @@ A pilot project: a **Blazor WebAssembly** dashboard that runs entirely in the br
 
 **Live site:** https://petronivs.github.io/blazor_dashboard/
 
-> **Status:** Working World Finance dashboard shell with a foreign-exchange tab containing inputs, rate cards, a converter and an interactive time-series chart. Every push is built and tested by GitHub Actions; pushes to `main` deploy to GitHub Pages.
+> **Status:** Working World Finance dashboard shell with two tabs: foreign exchange (Frankfurter) and inflation indicators (World Bank), each with cards and an interactive time-series chart. Every push is built and tested by GitHub Actions; pushes to `main` deploy to GitHub Pages.
 
 ## Goals
 
@@ -15,7 +15,9 @@ A pilot project: a **Blazor WebAssembly** dashboard that runs entirely in the br
 - Use a typed API client so a second data source can be added later without reworking the UI.
 - Deployable as static files (e.g. GitHub Pages).
 
-## Data source: Frankfurter API (v2)
+## Data sources
+
+### Frankfurter API (v2)
 
 [Frankfurter](https://frankfurter.dev) provides daily foreign-exchange reference rates.
 
@@ -40,9 +42,26 @@ v2 returns a flat array, one row per date/quote:
 
 Rates are only published on business days, so time series have gaps (weekends/holidays).
 
+### World Bank Indicators API (v2)
+
+[World Bank Indicators](https://datahelpdesk.worldbank.org/knowledgebase/articles/889392-api-basic-call-structures) provides annual country-level macroeconomic series.
+
+- **No API key**, no signup.
+- **CORS enabled**, so the browser can call it directly.
+- One request can include multiple countries for one indicator.
+
+| Endpoint | Purpose |
+|---|---|
+| `GET /country?format=json&per_page=400` | Country catalog (aggregates filtered out in-app) |
+| `GET /country/USA;DEU;JPN/indicator/FP.CPI.TOTL.ZG?format=json&date=2010:2025&per_page=1000` | Multi-country annual inflation series |
+
+Base URL: `https://api.worldbank.org/v2`
+
+Responses use a two-element JSON array `[paging, rows]`. Rows can be `null`, and individual row values can also be `null` (often for the newest year).
+
 ## Dashboard
 
-The app now presents a **World Finance Dashboard** shell so additional data sources can be added over time. The current Frankfurter-powered foreign-exchange view is the first tab and keeps all existing behavior.
+The app presents a **World Finance Dashboard** shell with dedicated tabs for each data source.
 
 ### Foreign exchange tab
 
@@ -64,6 +83,24 @@ The app now presents a **World Finance Dashboard** shell so additional data sour
 
 Any input change refetches rates with a single `/v2/rates` time-series call; the newest request cancels any still in flight. While it loads, the cards and chart keep their previous content, dimmed. Currencies with no rates in the selected range are listed under the cards.
 
+### Inflation tab
+
+The World Bank tab compares annual inflation indicators across selected countries.
+
+**Inputs**
+- Country chips (default USA, DEU, JPN, GBR; at most 8)
+- Indicator dropdown:
+  - `FP.CPI.TOTL.ZG` (Inflation, consumer prices, annual %; default)
+  - `FP.CPI.TOTL` (Consumer price index, 2010 = 100)
+- Year range (default: last 15 years)
+
+**Outputs**
+- One card per country with its latest non-null value and source year
+- A chart with years on the x-axis and raw indicator values (no re-indexing)
+- Countries with no data in the selected range, listed under the cards
+
+Like FX, the newest request cancels any in-flight request and the previous cards/chart stay visible but dimmed while loading.
+
 ### The chart
 
 A hand-written SVG component (`RateChart`), with no charting library and no JavaScript.
@@ -80,6 +117,7 @@ A hand-written SVG component (`RateChart`), with no charting library and no Java
 
 - .NET 10 SDK, Blazor WebAssembly (standalone, empty template, no CSS framework)
 - `HttpClient` with a typed Frankfurter client
+- `HttpClient` with typed Frankfurter and World Bank clients
 - Plain CSS with light/dark themes via `prefers-color-scheme`
 - Charts: hand-written SVG Razor components, plus a tiny JS helper to read/write the state cookie
 
@@ -90,11 +128,13 @@ BlazorDashboard.slnx
 dotnet-tools.json                  # Local tools (ReportGenerator for coverage)
 .github/workflows/ci.yml           # Build, test, coverage; deploy main to GitHub Pages
 src/BlazorDashboard/
-├── Program.cs                     # DI setup: FrankfurterClient, TimeProvider
+├── Program.cs                     # DI setup: FrankfurterClient, WorldBankClient, TimeProvider
 ├── Services/
 │   ├── CookieDashboardStateStore.cs # Reads/writes the remembered dashboard selections cookie
 │   ├── DashboardState.cs          # Serializable snapshot of the remembered selections
 │   ├── FrankfurterClient.cs       # Typed client for /v2/currencies and /v2/rates
+│   ├── WorldBankClient.cs         # Typed client for country list + indicator series endpoints
+│   ├── WorldBankModels.cs         # World Bank DTOs and mapped dashboard records
 │   ├── IDashboardStateStore.cs    # Abstraction for restoring/saving dashboard selections
 │   ├── FrankfurterModels.cs       # Currency and Rate records (JSON mapping)
 │   ├── RateSummary.cs             # First/last rate and % change per quote
@@ -105,7 +145,8 @@ src/BlazorDashboard/
 │   ├── RateChartLayout.cs         # Pure geometry: points, ticks, hover columns, label placement
 │   └── NiceScale.cs               # Round-number axis ranges and tick steps
 ├── Components/
-│   └── FxDashboard.razor          # Frankfurter-backed FX dashboard tab content
+│   ├── FxDashboard.razor          # Frankfurter-backed FX dashboard tab content
+│   └── InflationDashboard.razor   # World Bank-backed inflation dashboard tab content
 ├── Pages/Home.razor               # World Finance shell and dashboard tabs
 ├── Layout/MainLayout.razor
 └── wwwroot/
@@ -114,12 +155,13 @@ src/BlazorDashboard/
 tests/BlazorDashboard.Tests/
 ├── Components/                    # bUnit tests for FxDashboard behavior and cookie persistence
 │   ├── FxDashboardTests.cs
-│   └── FxDashboardCookiePersistenceTests.cs
+│   ├── FxDashboardCookiePersistenceTests.cs
+│   └── InflationDashboardTests.cs
 ├── Services/                      # Unit tests: client, summaries, formatting
 ├── Charts/                        # Unit tests for scale and layout; bUnit tests for RateChart
 ├── Pages/HomeTests.cs             # bUnit tests for the World Finance shell
 ├── AppTests.cs                    # Routing: dashboard and not-found page
-└── TestSupport/                   # Fake Frankfurter API, stub HTTP handler, fixed clock
+└── TestSupport/                   # Fake Frankfurter/World Bank APIs, stub HTTP handler, fixed clock
 ```
 
 The page gets "today" from an injected `TimeProvider` so tests can pin the date.
@@ -139,7 +181,7 @@ Then open http://localhost:5036.
 
 The project is developed test-first: each behavior change starts with a test that is run and seen to fail, then the code is written to make it pass.
 
-Tests use xUnit and [bUnit](https://bunit.dev) and never touch the network: the Frankfurter API is replaced by an in-memory fake behind a stub `HttpMessageHandler`.
+Tests use xUnit and [bUnit](https://bunit.dev) and never touch the network: Frankfurter and World Bank APIs are replaced by in-memory fakes behind a stub `HttpMessageHandler`.
 
 ```bash
 dotnet test BlazorDashboard.slnx
@@ -156,7 +198,7 @@ dotnet reportgenerator -reports:"TestResults/*/coverage.cobertura.xml" -targetdi
 
 Open `TestResults/coverage-report/index.html` for the full report.
 
-**Current coverage:** 129 tests; 98% line and 98.8% branch coverage. Everything except `Program.cs` (startup wiring, which tests don't run) is at or near 100%. The one uncovered branch in `Home.razor` is a defensive guard that `HttpClient`'s own cancellation handling makes unreachable in tests.
+**Current coverage:** 144 tests; line/branch coverage remains ~98% overall. Everything except `Program.cs` (startup wiring, which tests don't run) is at or near 100%.
 
 ## CI and deployment
 
@@ -183,4 +225,4 @@ GitHub Pages is configured with **Source: GitHub Actions** (repository Settings 
 - [x] Time-series chart
 - [x] CI on every push (GitHub Actions)
 - [x] Deploy to GitHub Pages
-- [ ] (Stretch) Add a second data source, e.g. World Bank indicators or Finnhub stocks
+- [x] (Stretch) Add a second data source, e.g. World Bank indicators or Finnhub stocks

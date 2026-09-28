@@ -13,6 +13,7 @@ public class AppTests : BunitContext
         JSInterop.Mode = JSRuntimeMode.Loose; // FocusOnNavigate calls into JS
         Services.AddSingleton<TimeProvider>(new FixedTimeProvider(new DateTimeOffset(2026, 9, 25, 12, 0, 0, TimeSpan.Zero)));
         Services.AddSingleton(_ => new FakeFrankfurterApi().CreateClient());
+        Services.AddSingleton(_ => new FakeWorldBankApi().CreateClient());
         Services.AddScoped<IDashboardStateStore, CookieDashboardStateStore>();
     }
 
@@ -38,7 +39,6 @@ public class AppTests : BunitContext
 
             var tab = cut.Find(".dashboard-tabs .dashboard-tab-active");
             Assert.Equal("Foreign exchange", tab.TextContent.Trim());
-            Assert.Equal("#panel-foreign-exchange", tab.GetAttribute("href"));
             Assert.Equal("FX Dashboard", cut.Find("main.container h2").TextContent);
         });
     }

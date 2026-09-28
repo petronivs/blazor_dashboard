@@ -9,12 +9,44 @@
 
 <section class="dashboard-shell" aria-label="World Finance dashboard">
     <nav class="dashboard-tabs" aria-label="World Finance data sources">
-        <a class="dashboard-tab dashboard-tab-active" href="#panel-foreign-exchange">
+        <button type="button"
+                class="dashboard-tab @(activeTab == HomeTab.ForeignExchange ? "dashboard-tab-active" : null)"
+                data-tab="foreign-exchange"
+                aria-controls="panel-foreign-exchange"
+                aria-selected="@(activeTab == HomeTab.ForeignExchange ? "true" : "false")"
+                @onclick="() => activeTab = HomeTab.ForeignExchange">
             Foreign exchange
-        </a>
+        </button>
+        <button type="button"
+                class="dashboard-tab @(activeTab == HomeTab.Inflation ? "dashboard-tab-active" : null)"
+                data-tab="inflation"
+                aria-controls="panel-inflation"
+                aria-selected="@(activeTab == HomeTab.Inflation ? "true" : "false")"
+                @onclick="() => activeTab = HomeTab.Inflation">
+            Inflation
+        </button>
     </nav>
 
-    <section id="panel-foreign-exchange" class="dashboard-panel">
-        <FxDashboard />
-    </section>
+    @if (activeTab == HomeTab.ForeignExchange)
+    {
+        <section id="panel-foreign-exchange" class="dashboard-panel">
+            <FxDashboard />
+        </section>
+    }
+    else
+    {
+        <section id="panel-inflation" class="dashboard-panel">
+            <InflationDashboard />
+        </section>
+    }
 </section>
+
+@code {
+    private enum HomeTab
+    {
+        ForeignExchange,
+        Inflation,
+    }
+
+    private HomeTab activeTab = HomeTab.ForeignExchange;
+}
