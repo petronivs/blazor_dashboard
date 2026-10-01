@@ -3,6 +3,12 @@ using BlazorDashboard.Services;
 
 namespace BlazorDashboard.Charts;
 
+public enum RateChartPlotMode
+{
+    PercentChangeSinceFirst,
+    RawValues,
+}
+
 /// <summary>One data point: the rate on a date, its change since the series start, and its SVG position.</summary>
 public sealed record ChartPoint(DateOnly Date, decimal Rate, decimal Change, double X, double Y);
 
@@ -36,8 +42,6 @@ public sealed class RateChartLayout
     public const double LabelGap = 16;
 
     private const int MaxXTicks = 5;
-    private const string PercentFormat = "+0.##%;-0.##%;0%";
-
     public IReadOnlyList<ChartSeries> Series { get; private init; } = [];
     public IReadOnlyList<AxisTick> YTicks { get; private init; } = [];
     public IReadOnlyList<AxisTick> XTicks { get; private init; } = [];
@@ -45,16 +49,26 @@ public sealed class RateChartLayout
     public double ZeroY { get; private init; }
     public bool IsEmpty => Series.Count == 0;
 
-    public static RateChartLayout Build(IEnumerable<Rate> rows, IReadOnlyList<string> quoteOrder, IFormatProvider? provider = null)
+    public static RateChartLayout Build(
+        IEnumerable<Rate> rows,
+        IReadOnlyList<string> quoteOrder,
+        IFormatProvider? provider = null,
+        RateChartPlotMode plotMode = RateChartPlotMode.PercentChangeSinceFirst,
+        bool includeZeroInYScale = true,
+        Func<decimal, string>? yTickFormatter = null)
     {
-        // Each series as (date, rate, change) sorted by date, in quote order.
+        yTickFormatter ??= v => v.ToString("+0.##%;-0.##%;0%", provider);
+
+        // Each series as (date, rate, metric) sorted by date, in quote order.
         var raw = rows.GroupBy(r => r.Quote)
             .OrderBy(g => quoteOrder.IndexOf(g.Key))
             .Select(g =>
             {
                 var ordered = g.OrderBy(r => r.Date).ToList();
                 var first = ordered[0].Value;
-                return (Quote: g.Key, Rows: ordered.Select(r => (r.Date, r.Value, Change: first == 0 ? 0m : r.Value / first - 1)).ToList());
+                return (Quote: g.Key, Rows: ordered.Select(r => (r.Date, r.Value, Metric: plotMode == RateChartPlotMode.PercentChangeSinceFirst
+                    ? first == 0 ? 0m : r.Value / first - 1
+                    : r.Value)).ToList());
             })
             .ToList();
         if (raw.Count == 0)
@@ -69,13 +83,21 @@ public sealed class RateChartLayout
             ? (PlotLeft + PlotRight) / 2
             : PlotLeft + (double)(d.DayNumber - firstDay) / spanDays * (PlotRight - PlotLeft);
 
-        var changes = raw.SelectMany(s => s.Rows.Select(r => r.Change)).ToList();
-        var scale = NiceScale.For(Math.Min(0, changes.Min()), Math.Max(0, changes.Max()));
+        var values = raw.SelectMany(s => s.Rows.Select(r => r.Metric)).ToList();
+        var min = values.Min();
+        var max = values.Max();
+        if (includeZeroInYScale)
+        {
+            min = Math.Min(0, min);
+            max = Math.Max(0, max);
+        }
+
+        var scale = NiceScale.For(min, max);
         double YOf(decimal v) => PlotTop + (double)((scale.Max - v) / (scale.Max - scale.Min)) * (PlotBottom - PlotTop);
 
         var series = raw.Select(s => new ChartSeries(
                 s.Quote,
-                s.Rows.Select(r => new ChartPoint(r.Date, r.Value, r.Change, XOf(r.Date), YOf(r.Change))).ToList(),
+                s.Rows.Select(r => new ChartPoint(r.Date, r.Value, r.Metric, XOf(r.Date), YOf(r.Metric))).ToList(),
                 LabelY: 0))
             .ToList();
 
@@ -97,7 +119,7 @@ public sealed class RateChartLayout
         return new RateChartLayout
         {
             Series = SpreadLabels(series),
-            YTicks = scale.Ticks.Select(t => new AxisTick(YOf(t), t.ToString(PercentFormat, provider))).ToList(),
+            YTicks = scale.Ticks.Select(t => new AxisTick(YOf(t), yTickFormatter(t))).ToList(),
             XTicks = xTicks,
             Columns = columns,
             ZeroY = YOf(0),
